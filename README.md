@@ -7,8 +7,6 @@ Bu proje, çok kullanıcılı metin editörünün kullanıcı arayüzü (UI) bil
 - Kullanıcı kaydı ve girişi
 - Doküman oluşturma ve açma
 - Eş zamanlı metin düzenleme
-- Operational Transform ile çakışma çözümü
-- Gerçek zamanlı kullanıcı listesi
 - Otomatik kaydetme
 
 ## Gereksinimler
