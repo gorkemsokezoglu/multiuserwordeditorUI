@@ -1,10 +1,7 @@
 package org.multiuserwordeditor.model;
 
-import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
 import java.lang.StringBuilder;
-import java.util.StringJoiner;
 
 /**
  * MTP (Multi-user Text Protocol) Mesaj Sınıfı
@@ -65,6 +62,45 @@ public class Message {
         this.type = type;
         this.userId = userId;
         this.fileId = fileId;
+    }
+    // Message.java'ya eklenecek debug metodları
+
+    /**
+     * Tüm data key'lerini döndürür - debug için
+     */
+    public Set<String> getAllDataKeys() {
+        if (data == null) {
+            return new HashSet<>();
+        }
+        return data.keySet();
+    }
+
+    /**
+     * Raw data Map'ini döndürür - debug için
+     */
+    public Map<String, String> getAllData() {
+        return data != null ? new HashMap<>(data) : new HashMap<>();
+    }
+
+    /**
+     * Message'ı debug formatında yazdırır
+     */
+    public String toDebugString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Message{");
+        sb.append("type=").append(type);
+        sb.append(", userId='").append(userId).append("'");
+        sb.append(", fileId='").append(fileId).append("'");
+        sb.append(", timestamp=").append(timestamp);
+        sb.append(", data={");
+
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                sb.append(entry.getKey()).append("='").append(entry.getValue()).append("', ");
+            }
+        }
+        sb.append("}}");
+        return sb.toString();
     }
 
     // Data ekleme metotları
@@ -136,7 +172,7 @@ public class Message {
 
     public static Message createFileCreate(String userId, String fileName) {
         return new Message(MessageType.FILE_CREATE, userId, null)
-                .addData("filename", fileName);
+                .addData("name", fileName);
     }
 
     public static Message createFileOpen(String userId, String fileId) {

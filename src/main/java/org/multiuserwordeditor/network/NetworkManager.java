@@ -236,35 +236,80 @@ public class NetworkManager {
         }
     }
 
+
+
     private void handleServerMessage(String rawMessage) {
         try {
-            // UTF-8 karakter kodlaması düzeltmesi
-            String utf8Message = new String(rawMessage.getBytes("ISO-8859-1"), "UTF-8");
-            LOGGER.info("Sunucudan gelen ham mesaj -> " + utf8Message);
+            System.out.println("=== RAW MESSAGE DEBUG ===");
+            System.out.println("Raw mesaj: '" + rawMessage + "'");
 
-            Message message = Message.deserialize(utf8Message);
-            if (message == null) {
-                LOGGER.warning("Geçersiz mesaj formatı: " + utf8Message);
-                return;
+            // ========== FILE_LIST_RESP ÖZL İŞLEME ==========
+            if (rawMessage.startsWith("FILE_LIST_RESP|")) {
+                System.out.println("DEBUG: FILE_LIST_RESP özel işleme başlıyor...");
+
+                handleFileListResponseRaw(rawMessage);
+                return;  // Normal deserialize'a gitme
             }
 
-            LOGGER.info("Mesaj tipi -> " + message.getType());
-            LOGGER.info("Mesaj kullanıcı ID -> " + message.getUserId());
-            LOGGER.info("Mesaj dosya ID -> " + message.getFileId());
-            LOGGER.info("Mesaj data -> " + message.getData());
-
-            // LOGIN_ACK mesajında userId'yi ayarla
-            if (message.getType() == Message.MessageType.LOGIN_ACK &&
-                    "success".equals(message.getData("status"))) {
-                this.userId = message.getUserId();
-            }
+            // ========== DİĞER MESAJLAR NORMAL İŞLEME ==========
+            Message message = Message.deserialize(rawMessage);
 
             if (messageHandler != null) {
                 messageHandler.accept(message);
             }
+
         } catch (Exception e) {
-            LOGGER.severe("Mesaj işlenirken hata: " + e.getMessage());
-            handleError("Mesaj işlenirken hata", e);
+            System.err.println("ERROR: Mesaj işleme hatası: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * FILE_LIST_RESP mesajlarını özel olarak işler
+     */
+    private void handleFileListResponseRaw(String rawMessage) {
+        try {
+            // Format: FILE_LIST_RESP|userId|fileId|files:file1:file1.txt:0|file2:file2.txt:0|...|timestamp
+            String[] parts = rawMessage.split("\\|");
+
+            if (parts.length < 4) {
+                System.err.println("ERROR: Geçersiz FILE_LIST_RESP formatı");
+                return;
+            }
+
+            String userId = "null".equals(parts[1]) ? null : parts[1];
+            String fileId = "null".equals(parts[2]) ? null : parts[2];
+            long timestamp = Long.parseLong(parts[parts.length - 1]);  // Son part timestamp
+
+            // Files data'yı birleştir (Part[3]'ten Part[length-2]'ye kadar)
+            StringBuilder filesDataBuilder = new StringBuilder();
+
+            // İlk dosya part'ı (files: prefix'ini temizle)
+            if (parts[3].startsWith("files:")) {
+                filesDataBuilder.append(parts[3].substring("files:".length()));
+            }
+
+            // Diğer dosya part'larını ekle
+            for (int i = 4; i < parts.length - 1; i++) {  // Son part timestamp olduğu için -1
+                filesDataBuilder.append("|").append(parts[i]);
+            }
+
+            String finalFilesData = filesDataBuilder.toString();
+            System.out.println("DEBUG: Birleştirilmiş files data: '" + finalFilesData + "'");
+            System.out.println("DEBUG: Files data uzunluk: " + finalFilesData.length());
+
+            // Manuel message oluştur
+            Message fileListMessage = new Message(Message.MessageType.FILE_LIST_RESP, userId, fileId);
+            fileListMessage.addData("files", finalFilesData);
+
+            // Normal handler'a gönder
+            if (messageHandler != null) {
+                messageHandler.accept(fileListMessage);
+            }
+
+        } catch (Exception e) {
+            System.err.println("ERROR: FILE_LIST_RESP raw parse hatası: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 

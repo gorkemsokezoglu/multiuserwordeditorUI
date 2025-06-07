@@ -1,31 +1,10 @@
-[2025-06-07 22:26:50] [INFO   ] org.multiuserwordeditor.Main main: Uygulama ba?lat?l?yor...
-[2025-06-07 22:26:50] [INFO   ] org.multiuserwordeditor.Main main: Sistem temas? ayarland?
-[2025-06-07 22:26:50] [INFO   ] org.multiuserwordeditor.Main lambda$main$0: Giri? penceresi a�?ld?
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager connect: Sunucuya ba?lan?ld?: localhost:8080
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|null|null|message:Ho? geldiniz! Server: MTP - Multi-user Text Editor v1.0 | Aktif kullan?c?: 1 | Toplam dosya: 10|1749324427604
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> null
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Ho? geldiniz! Server: MTP - Multi-user Text Editor v1.0}
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> LOGIN_ACK|user_1749324427601_3|null|message:Giri? ba?ar?l?,status:success|1749324427605
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> LOGIN_ACK
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749324427601_3
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Giri? ba?ar?l?, status=success}
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> FILE_LIST_RESP|user_1749324427601_3|null|files:file_1749302453531_29:file_1749302453531_29.txt:0,file_1749302262687_27:file_1749302262687_27.txt:0,file_1749302100270_25:file_1749302100270_25.txt:0,file_1749301449197_23:file_1749301449197_23.txt:0,file_1749301340327_21:file_1749301340327_21.txt:0,file_1749301195241_19:file_1749301195241_19.txt:0,file_1749300875552_17:file_1749300875552_17.txt:0,file_1749300704921_15:file_1749300704921_15.txt:0,file_1749295867008_5:file_1749295867008_5.txt:0,file_1749295515751_3:file_1749295515751_3.txt:0|1749324427753
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> FILE_LIST_RESP
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749324427601_3
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {file_1749300875552_17=file_1749300875552_17.txt:0, file_1749295867008_5=file_1749295867008_5.txt:0, files=file_1749302453531_29:file_1749302453531_29.txt:0, file_1749301195241_19=file_1749301195241_19.txt:0, file_1749300704921_15=file_1749300704921_15.txt:0, file_1749301340327_21=file_1749301340327_21.txt:0, file_1749302262687_27=file_1749302262687_27.txt:0, file_1749302100270_25=file_1749302100270_25.txt:0, file_1749301449197_23=file_1749301449197_23.txt:0, file_1749295515751_3=file_1749295515751_3.txt:0}
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> FILE_LIST_RESP|user_1749324427601_3|null|files:file_1749302453531_29:file_1749302453531_29.txt:0,file_1749302262687_27:file_1749302262687_27.txt:0,file_1749302100270_25:file_1749302100270_25.txt:0,file_1749301449197_23:file_1749301449197_23.txt:0,file_1749301340327_21:file_1749301340327_21.txt:0,file_1749301195241_19:file_1749301195241_19.txt:0,file_1749300875552_17:file_1749300875552_17.txt:0,file_1749300704921_15:file_1749300704921_15.txt:0,file_1749295867008_5:file_1749295867008_5.txt:0,file_1749295515751_3:file_1749295515751_3.txt:0|1749324427755
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> FILE_LIST_RESP
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749324427601_3
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
-[2025-06-07 22:27:07] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {file_1749300875552_17=file_1749300875552_17.txt:0, file_1749295867008_5=file_1749295867008_5.txt:0, files=file_1749302453531_29:file_1749302453531_29.txt:0, file_1749301195241_19=file_1749301195241_19.txt:0, file_1749300704921_15=file_1749300704921_15.txt:0, file_1749301340327_21=file_1749301340327_21.txt:0, file_1749302262687_27=file_1749302262687_27.txt:0, file_1749302100270_25=file_1749302100270_25.txt:0, file_1749301449197_23=file_1749301449197_23.txt:0, file_1749295515751_3=file_1749295515751_3.txt:0}
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager createDocument: Dok�man olu?turma iste?i g�nderiliyor: FILE_CREATE|user_1749324427601_3|null|filename:merhaba|1749324435276
-
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|user_1749324427601_3|null|message:Ge?ersiz dosya ismi|1749324435278
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749324427601_3
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
-[2025-06-07 22:27:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Ge?ersiz dosya ismi}
+[2025-06-08 02:52:34] [INFO   ] org.multiuserwordeditor.Main main: Uygulama başlatılıyor...
+[2025-06-08 02:52:34] [INFO   ] org.multiuserwordeditor.Main main: Sistem teması ayarlandı
+[2025-06-08 02:52:34] [INFO   ] org.multiuserwordeditor.Main lambda$main$0: Giriş penceresi açıldı
+[2025-06-08 02:52:51] [INFO   ] org.multiuserwordeditor.network.NetworkManager connect: Sunucuya bağlanıldı: localhost:8080
+[2025-06-08 02:53:06] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748088562800_471, pozisyon: 12
+[2025-06-08 02:53:08] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748088562800_471, pozisyon: 13
+[2025-06-08 02:53:35] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748087160297_262, pozisyon: 1
+[2025-06-08 02:53:40] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748087160297_262, pozisyon: 2
+[2025-06-08 02:54:08] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748979958236_2, pozisyon: 21
+[2025-06-08 02:54:11] [FINE   ] org.multiuserwordeditor.ui.MainWindow handleTextChange: Doküman güncellendi: file_1748979958236_2, pozisyon: 20
