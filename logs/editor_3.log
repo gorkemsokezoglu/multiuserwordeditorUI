@@ -1,0 +1,5 @@
+[2025-06-07 22:16:12] [INFO   ] org.multiuserwordeditor.Main main: Uygulama ba?lat?l?yor...
+[2025-06-07 22:16:12] [INFO   ] org.multiuserwordeditor.Main main: Sistem temas? ayarland?
+[2025-06-07 22:16:12] [INFO   ] org.multiuserwordeditor.Main lambda$main$0: Giri? penceresi aç?ld?
+[2025-06-07 22:16:17] [INFO   ] org.multiuserwordeditor.network.NetworkManager connect: Sunucuya ba?lan?ld?: localhost:8080
+[2025-06-07 22:16:52] [INFO   ] org.multiuserwordeditor.network.NetworkManager connect: Sunucuya ba?lan?ld?: localhost:8080

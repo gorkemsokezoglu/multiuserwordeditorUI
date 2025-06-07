@@ -1,0 +1,9 @@
+[2025-06-07 22:23:15] [INFO   ] org.multiuserwordeditor.Main main: Uygulama ba?lat?l?yor...
+[2025-06-07 22:23:15] [INFO   ] org.multiuserwordeditor.Main main: Sistem temas? ayarland?
+[2025-06-07 22:23:15] [INFO   ] org.multiuserwordeditor.Main lambda$main$0: Giri? penceresi aç?ld?
+[2025-06-07 22:23:20] [INFO   ] org.multiuserwordeditor.network.NetworkManager connect: Sunucuya ba?lan?ld?: localhost:8080
+[2025-06-07 22:23:20] [FINE   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|null|null|message:CONNECT komutu desteklenmiyor, LOGIN kullan?n|1749324200308
+[2025-06-07 22:23:20] [FINE   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
+[2025-06-07 22:23:20] [FINE   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> null
+[2025-06-07 22:23:20] [FINE   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 22:23:20] [FINE   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=CONNECT komutu desteklenmiyor}

@@ -1,0 +1,33 @@
+[2025-06-07 21:48:27] [INFO   ] org.multiuserwordeditor.Main main: Uygulama ba?lat?l?yor...
+[2025-06-07 21:48:27] [INFO   ] org.multiuserwordeditor.Main main: Sistem temas? ayarland?
+[2025-06-07 21:48:28] [INFO   ] org.multiuserwordeditor.Main lambda$main$0: Giri? penceresi aç?ld?
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|null|null|message:Ho? geldiniz! Server: MTP - Multi-user Text Editor v1.0 | Aktif kullan?c?: 1 | Toplam dosya: 10|1749322125703
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> null
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Ho? geldiniz! Server: MTP - Multi-user Text Editor v1.0}
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> LOGIN_ACK|user_1749322125691_1|null|message:Giri? ba?ar?l?,status:success|1749322125704
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> LOGIN_ACK
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749322125691_1
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Giri? ba?ar?l?, status=success}
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> FILE_LIST_RESP|user_1749322125691_1|null|files:file_1749302453531_29:file_1749302453531_29.txt:0,file_1749302262687_27:file_1749302262687_27.txt:0,file_1749302100270_25:file_1749302100270_25.txt:0,file_1749301449197_23:file_1749301449197_23.txt:0,file_1749301340327_21:file_1749301340327_21.txt:0,file_1749301195241_19:file_1749301195241_19.txt:0,file_1749300875552_17:file_1749300875552_17.txt:0,file_1749300704921_15:file_1749300704921_15.txt:0,file_1749295867008_5:file_1749295867008_5.txt:0,file_1749295515751_3:file_1749295515751_3.txt:0|1749322125875
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> FILE_LIST_RESP
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749322125691_1
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {file_1749300875552_17=file_1749300875552_17.txt:0, file_1749295867008_5=file_1749295867008_5.txt:0, files=file_1749302453531_29:file_1749302453531_29.txt:0, file_1749301195241_19=file_1749301195241_19.txt:0, file_1749300704921_15=file_1749300704921_15.txt:0, file_1749301340327_21=file_1749301340327_21.txt:0, file_1749302262687_27=file_1749302262687_27.txt:0, file_1749302100270_25=file_1749302100270_25.txt:0, file_1749301449197_23=file_1749301449197_23.txt:0, file_1749295515751_3=file_1749295515751_3.txt:0}
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> FILE_LIST_RESP|user_1749322125691_1|null|files:file_1749302453531_29:file_1749302453531_29.txt:0,file_1749302262687_27:file_1749302262687_27.txt:0,file_1749302100270_25:file_1749302100270_25.txt:0,file_1749301449197_23:file_1749301449197_23.txt:0,file_1749301340327_21:file_1749301340327_21.txt:0,file_1749301195241_19:file_1749301195241_19.txt:0,file_1749300875552_17:file_1749300875552_17.txt:0,file_1749300704921_15:file_1749300704921_15.txt:0,file_1749295867008_5:file_1749295867008_5.txt:0,file_1749295515751_3:file_1749295515751_3.txt:0|1749322125875
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> FILE_LIST_RESP
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749322125691_1
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:48:45] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {file_1749300875552_17=file_1749300875552_17.txt:0, file_1749295867008_5=file_1749295867008_5.txt:0, files=file_1749302453531_29:file_1749302453531_29.txt:0, file_1749301195241_19=file_1749301195241_19.txt:0, file_1749300704921_15=file_1749300704921_15.txt:0, file_1749301340327_21=file_1749301340327_21.txt:0, file_1749302262687_27=file_1749302262687_27.txt:0, file_1749302100270_25=file_1749302100270_25.txt:0, file_1749301449197_23=file_1749301449197_23.txt:0, file_1749295515751_3=file_1749295515751_3.txt:0}
+[2025-06-07 21:49:57] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|user_1749322125691_1|null|message:Ge?ersiz dosya ismi|1749322197260
+[2025-06-07 21:49:57] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
+[2025-06-07 21:49:57] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749322125691_1
+[2025-06-07 21:49:57] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:49:57] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Ge?ersiz dosya ismi}
+[2025-06-07 21:52:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Sunucudan gelen ham mesaj -> ERROR|user_1749322125691_1|null|message:Ge?ersiz dosya ismi|1749322335701
+[2025-06-07 21:52:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj tipi -> ERROR
+[2025-06-07 21:52:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj kullan?c? ID -> user_1749322125691_1
+[2025-06-07 21:52:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj dosya ID -> null
+[2025-06-07 21:52:15] [INFO   ] org.multiuserwordeditor.network.NetworkManager handleServerMessage: Mesaj data -> {message=Ge?ersiz dosya ismi}

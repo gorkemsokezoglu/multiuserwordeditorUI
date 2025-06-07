@@ -13,7 +13,6 @@ public class LoginWindow extends JFrame {
     private JTextField portField;
     private JTextField usernameField;
     private JPasswordField passwordField;
-    private JButton connectButton;
     private JButton registerButton;
     private JButton loginButton;
     private JLabel statusLabel;
@@ -39,13 +38,12 @@ public class LoginWindow extends JFrame {
 
         // Bağlantı paneli
         JPanel connectionPanel = new JPanel(new GridLayout(0, 2, 5, 5));
-        connectionPanel.setBorder(BorderFactory.createTitledBorder("Sunucu Bağlantısı"));
+        connectionPanel.setBorder(BorderFactory.createTitledBorder("Sunucu Bilgileri"));
 
         hostField = new JTextField("localhost", 15);
         portField = new JTextField("12345", 15);
         usernameField = new JTextField(15);
         passwordField = new JPasswordField(15);
-        connectButton = new JButton("Bağlan");
         registerButton = new JButton("Kayıt Ol");
         loginButton = new JButton("Giriş Yap");
 
@@ -69,7 +67,6 @@ public class LoginWindow extends JFrame {
 
         // Buton paneli
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
-        buttonPanel.add(connectButton);
         buttonPanel.add(registerButton);
         buttonPanel.add(loginButton);
         mainPanel.add(buttonPanel);
@@ -77,16 +74,14 @@ public class LoginWindow extends JFrame {
         add(mainPanel, BorderLayout.CENTER);
 
         // Durum çubuğu
-        statusLabel = new JLabel("Bağlantı bekleniyor...");
+        statusLabel = new JLabel("Lütfen bilgilerinizi girin...");
         statusLabel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         add(statusLabel, BorderLayout.SOUTH);
 
-        setEditingEnabled(false);
         setupEventHandlers();
     }
 
     private void setupEventHandlers() {
-        connectButton.addActionListener(e -> handleConnect());
         registerButton.addActionListener(e -> handleRegister());
         loginButton.addActionListener(e -> handleLogin());
 
@@ -97,10 +92,11 @@ public class LoginWindow extends JFrame {
 
     private void setupNetworkManager() {
         networkManager.setMessageHandler(message -> {
-            if (message == null || !message.isValid()) return;
+            if (message == null || !message.isValid())
+                return;
 
             System.out.println("Login: Mesaj alındı -> " + message.getType());
-            
+
             switch (message.getType()) {
                 case CONNECT_ACK:
                     handleConnectAck(message);
@@ -126,16 +122,25 @@ public class LoginWindow extends JFrame {
         });
     }
 
-    private void handleConnect() {
+    private boolean connectToServer() {
         try {
             String host = hostField.getText().trim();
             int port = Integer.parseInt(portField.getText().trim());
+
+            if (host.isEmpty()) {
+                showError("Sunucu adresi boş olamaz!");
+                return false;
+            }
+
             networkManager.connect(host, port);
             statusLabel.setText("Sunucuya bağlanılıyor...");
+            return true;
         } catch (NumberFormatException e) {
             showError("Geçersiz port numarası!");
+            return false;
         } catch (Exception e) {
             showError("Bağlantı hatası: " + e.getMessage());
+            return false;
         }
     }
 
@@ -143,16 +148,22 @@ public class LoginWindow extends JFrame {
         try {
             String username = usernameField.getText().trim();
             String password = new String(passwordField.getPassword()).trim();
-            
+
             if (username.isEmpty() || password.isEmpty()) {
                 showError("Kullanıcı adı ve şifre boş olamaz!");
                 return;
             }
 
+            if (!networkManager.isConnected() && !connectToServer()) {
+                return;
+            }
+
             networkManager.login(username, password);
             statusLabel.setText("Giriş yapılıyor...");
+            setButtonsEnabled(false);
         } catch (Exception e) {
             showError("Giriş hatası: " + e.getMessage());
+            setButtonsEnabled(true);
         }
     }
 
@@ -160,26 +171,33 @@ public class LoginWindow extends JFrame {
         try {
             String username = usernameField.getText().trim();
             String password = new String(passwordField.getPassword()).trim();
-            
+
             if (username.isEmpty() || password.isEmpty()) {
                 showError("Kullanıcı adı ve şifre boş olamaz!");
                 return;
             }
 
+            if (!networkManager.isConnected() && !connectToServer()) {
+                return;
+            }
+
             networkManager.register(username, password);
             statusLabel.setText("Kayıt yapılıyor...");
+            setButtonsEnabled(false);
         } catch (Exception e) {
             showError("Kayıt hatası: " + e.getMessage());
+            setButtonsEnabled(true);
         }
     }
 
     private void handleConnectAck(Message message) {
         if ("success".equals(message.getData("status"))) {
             setConnectionStatus(true);
-            statusLabel.setText("Sunucuya bağlandı. Lütfen giriş yapın.");
+            statusLabel.setText("Sunucuya bağlandı. İşleminiz devam ediyor...");
         } else {
             showError(message.getData("message"));
             setConnectionStatus(false);
+            setButtonsEnabled(true);
         }
     }
 
@@ -192,23 +210,28 @@ public class LoginWindow extends JFrame {
                 openMainWindow(userId);
             } else {
                 showError("Sunucudan geçersiz kullanıcı ID alındı!");
+                setButtonsEnabled(true);
             }
         } else {
             showError("Giriş başarısız: " + message.getData("message"));
+            setButtonsEnabled(true);
         }
     }
 
     private void handleRegisterAck(Message message) {
         if ("success".equals(message.getData("status"))) {
             statusLabel.setText("Kayıt başarılı! Şimdi giriş yapabilirsiniz.");
+            setButtonsEnabled(true);
         } else {
             showError(message.getData("message"));
+            setButtonsEnabled(true);
         }
     }
 
     private void handleError(String message) {
         showError(message);
         setConnectionStatus(false);
+        setButtonsEnabled(true);
     }
 
     private void openMainWindow(String userId) {
@@ -223,18 +246,16 @@ public class LoginWindow extends JFrame {
 
     private void setConnectionStatus(boolean connected) {
         SwingUtilities.invokeLater(() -> {
-            registerButton.setEnabled(connected);
-            loginButton.setEnabled(connected);
-            connectButton.setEnabled(!connected);
             hostField.setEnabled(!connected);
             portField.setEnabled(!connected);
         });
     }
 
-    private void setEditingEnabled(boolean enabled) {
-        registerButton.setEnabled(enabled);
-        loginButton.setEnabled(enabled);
-        connectButton.setEnabled(!enabled);
+    private void setButtonsEnabled(boolean enabled) {
+        SwingUtilities.invokeLater(() -> {
+            registerButton.setEnabled(enabled);
+            loginButton.setEnabled(enabled);
+        });
     }
 
     private void showError(String message) {
@@ -242,4 +263,4 @@ public class LoginWindow extends JFrame {
             JOptionPane.showMessageDialog(this, message, "Hata", JOptionPane.ERROR_MESSAGE);
         });
     }
-} 
+}

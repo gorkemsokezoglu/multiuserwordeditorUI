@@ -15,7 +15,7 @@ import java.util.logging.Level;
 
 public class NetworkManager {
     private static final Logger LOGGER = Logger.getLogger(NetworkManager.class.getName());
-    
+
     private Socket socket;
     private PrintWriter writer;
     private BufferedReader reader;
@@ -42,8 +42,10 @@ public class NetworkManager {
     public void connect(String host, int port) {
         try {
             socket = new Socket(host, port);
-            writer = new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8")), true);
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            writer = new PrintWriter(new BufferedWriter(
+                    new OutputStreamWriter(socket.getOutputStream(), "UTF-8")), true);
+            reader = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), "UTF-8"));
             isConnected = true;
 
             // Mesaj okuma thread'ini başlat
@@ -51,22 +53,14 @@ public class NetworkManager {
                 try {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        // UTF-8 olarak oku
-                        byte[] bytes = line.getBytes("ISO-8859-1");
-                        String utf8Line = new String(bytes, "UTF-8");
-                        handleServerMessage(utf8Line);
+                        handleServerMessage(line);
                     }
                 } catch (IOException e) {
                     handleError("Sunucu bağlantısı kesildi", e);
                 }
             });
 
-            // Bağlantı başarılı olduğunda UI'ı güncelle
-            if (messageHandler != null) {
-                Message connectAckMsg = Message.createConnectAck(null, true, "Bağlantı başarılı");
-                messageHandler.accept(connectAckMsg);
-            }
-
+            LOGGER.info("Sunucuya bağlanıldı: " + host + ":" + port);
         } catch (IOException e) {
             handleError("Sunucuya bağlanılamadı", e);
         }
@@ -81,9 +75,12 @@ public class NetworkManager {
 
         try {
             isConnected = false;
-            if (writer != null) writer.close();
-            if (reader != null) reader.close();
-            if (socket != null) socket.close();
+            if (writer != null)
+                writer.close();
+            if (reader != null)
+                reader.close();
+            if (socket != null)
+                socket.close();
             executorService.shutdown();
         } catch (IOException e) {
             handleError("Bağlantı kapatılırken hata", e);
@@ -91,12 +88,15 @@ public class NetworkManager {
     }
 
     private String formatData(String... keyValues) {
-        if (keyValues.length == 0) return "empty";
-        if (keyValues.length % 2 != 0) return "empty";
+        if (keyValues.length == 0)
+            return "empty";
+        if (keyValues.length % 2 != 0)
+            return "empty";
 
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < keyValues.length; i += 2) {
-            if (i > 0) sb.append(DATA_SEPARATOR);
+            if (i > 0)
+                sb.append(DATA_SEPARATOR);
             sb.append(keyValues[i]).append(KEY_VALUE_SEPARATOR).append(keyValues[i + 1]);
         }
         return sb.toString();
@@ -111,14 +111,14 @@ public class NetworkManager {
                         fileId != null ? fileId : "null", DELIMITER,
                         data, DELIMITER,
                         System.currentTimeMillis(), MESSAGE_END);
-                
+
                 // UTF-8 olarak gönder
                 byte[] messageBytes = message.getBytes("UTF-8");
                 String utf8Message = new String(messageBytes, "UTF-8");
-                
+
                 writer.println(utf8Message);
                 writer.flush();
-                
+
                 System.out.println("Gönderilen mesaj: " + utf8Message);
             } catch (Exception e) {
                 handleError("Mesaj gönderilirken hata oluştu", e);
@@ -150,32 +150,44 @@ public class NetworkManager {
 
     // Türkçe karakterleri İngilizce karakterlere dönüştüren yardımcı metod
     private String convertTurkishToEnglish(String text) {
-        if (text == null) return null;
-        
+        if (text == null)
+            return null;
+
         return text.replace("ı", "i")
-                  .replace("ğ", "g")
-                  .replace("ü", "u")
-                  .replace("ş", "s")
-                  .replace("ö", "o")
-                  .replace("ç", "c")
-                  .replace("İ", "I")
-                  .replace("Ğ", "G")
-                  .replace("Ü", "U")
-                  .replace("Ş", "S")
-                  .replace("Ö", "O")
-                  .replace("Ç", "C");
+                .replace("ğ", "g")
+                .replace("ü", "u")
+                .replace("ş", "s")
+                .replace("ö", "o")
+                .replace("ç", "c")
+                .replace("İ", "I")
+                .replace("Ğ", "G")
+                .replace("Ü", "U")
+                .replace("Ş", "S")
+                .replace("Ö", "O")
+                .replace("Ç", "C");
     }
 
     public void createDocument(String filename) {
         try {
-            // Türkçe karakterleri İngilizce karakterlere dönüştür
-            String safeFilename = convertTurkishToEnglish(filename);
-            
-            Message createMsg = Message.createFileCreate(userId, safeFilename);
-            writer.println(createMsg.serialize());
+            if (filename == null || filename.trim().isEmpty()) {
+                throw new IllegalArgumentException("Dosya adı boş olamaz");
+            }
+
+            // Dosya adını temizle ve UTF-8'e dönüştür
+            String cleanFilename = new String(filename.trim().getBytes("UTF-8"), "UTF-8");
+
+            // Mesajı oluştur ve gönder
+            Message createMsg = Message.createFileCreate(userId, cleanFilename);
+            String rawMessage = createMsg.serialize();
+
+            // UTF-8 olarak gönder
+            LOGGER.info("Doküman oluşturma isteği gönderiliyor: " + rawMessage);
+            writer.println(rawMessage);
             writer.flush();
+        } catch (IllegalArgumentException e) {
+            handleError("Geçersiz dosya adı", e);
         } catch (Exception e) {
-            handleError("Doküman oluşturulurken hata", e);
+            handleError("Doküman oluşturulurken hata oluştu", e);
         }
     }
 
@@ -226,34 +238,33 @@ public class NetworkManager {
 
     private void handleServerMessage(String rawMessage) {
         try {
-            LOGGER.info("Sunucudan gelen ham mesaj -> " + rawMessage);
-            
-            // UTF-8 olarak işle
-            byte[] messageBytes = rawMessage.getBytes("ISO-8859-1");
-            String utf8Message = new String(messageBytes, "UTF-8");
-            
+            // UTF-8 karakter kodlaması düzeltmesi
+            String utf8Message = new String(rawMessage.getBytes("ISO-8859-1"), "UTF-8");
+            LOGGER.info("Sunucudan gelen ham mesaj -> " + utf8Message);
+
             Message message = Message.deserialize(utf8Message);
-            
-            if (message != null && message.isValid()) {
-                LOGGER.info("Mesaj tipi -> " + message.getType());
-                LOGGER.info("Mesaj kullanıcı ID -> " + message.getUserId());
-                LOGGER.info("Mesaj dosya ID -> " + message.getFileId());
-                LOGGER.info("Mesaj data -> " + message.getData());
-                
-                // LOGIN_ACK mesajında userId'yi ayarla
-                if (message.getType() == Message.MessageType.LOGIN_ACK && 
+            if (message == null) {
+                LOGGER.warning("Geçersiz mesaj formatı: " + utf8Message);
+                return;
+            }
+
+            LOGGER.info("Mesaj tipi -> " + message.getType());
+            LOGGER.info("Mesaj kullanıcı ID -> " + message.getUserId());
+            LOGGER.info("Mesaj dosya ID -> " + message.getFileId());
+            LOGGER.info("Mesaj data -> " + message.getData());
+
+            // LOGIN_ACK mesajında userId'yi ayarla
+            if (message.getType() == Message.MessageType.LOGIN_ACK &&
                     "success".equals(message.getData("status"))) {
-                    this.userId = message.getUserId();
-                }
-                
-                if (messageHandler != null) {
-                    messageHandler.accept(message);
-                }
-            } else {
-                LOGGER.warning("Geçersiz mesaj -> " + utf8Message);
+                this.userId = message.getUserId();
+            }
+
+            if (messageHandler != null) {
+                messageHandler.accept(message);
             }
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Mesaj işlenirken hata -> " + e.getMessage(), e);
+            LOGGER.severe("Mesaj işlenirken hata: " + e.getMessage());
+            handleError("Mesaj işlenirken hata", e);
         }
     }
 
@@ -264,7 +275,8 @@ public class NetworkManager {
     }
 
     private String extractDataValue(String data, String key) {
-        if (data == null || key == null) return null;
+        if (data == null || key == null)
+            return null;
         String[] pairs = data.split(",");
         for (String pair : pairs) {
             String[] keyValue = pair.split(":");
@@ -317,7 +329,7 @@ public class NetworkManager {
                     message = Message.createTextUpdate(userId, fileId, position, text);
                     break;
             }
-            
+
             String rawMessage = message.serialize();
             System.out.println("Gönderilen metin güncellemesi: " + rawMessage);
             writer.println(rawMessage);
@@ -326,6 +338,4 @@ public class NetworkManager {
             handleError("Metin güncellemesi gönderilirken hata", e);
         }
     }
-} 
- 
- 
+}

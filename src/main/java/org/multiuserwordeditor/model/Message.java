@@ -14,31 +14,31 @@ public class Message {
     // Mesaj tipleri - kategorilere ayrılmış
     public enum MessageType {
         // 1. Bağlantı İşlemleri
-        CONNECT,         // İstemci -> Sunucu: Bağlantı isteği
-        CONNECT_ACK,     // Sunucu -> İstemci: Bağlantı yanıtı
-        DISCONNECT,      // İstemci <-> Sunucu: Bağlantı sonlandırma
+        CONNECT, // İstemci -> Sunucu: Bağlantı isteği
+        CONNECT_ACK, // Sunucu -> İstemci: Bağlantı yanıtı
+        DISCONNECT, // İstemci <-> Sunucu: Bağlantı sonlandırma
 
         // 2. Dosya İşlemleri
-        FILE_LIST,       // İstemci -> Sunucu: Dosya listesi isteği
-        FILE_LIST_RESP,  // Sunucu -> İstemci: Dosya listesi yanıtı
-        FILE_CREATE,     // İstemci -> Sunucu: Yeni dosya oluşturma
-        FILE_OPEN,       // İstemci -> Sunucu: Dosya açma isteği
-        FILE_CONTENT,    // Sunucu -> İstemci: Dosya içeriği
+        FILE_LIST, // İstemci -> Sunucu: Dosya listesi isteği
+        FILE_LIST_RESP, // Sunucu -> İstemci: Dosya listesi yanıtı
+        FILE_CREATE, // İstemci -> Sunucu: Yeni dosya oluşturma
+        FILE_OPEN, // İstemci -> Sunucu: Dosya açma isteği
+        FILE_CONTENT, // Sunucu -> İstemci: Dosya içeriği
 
         // 3. Metin Düzenleme İşlemleri
-        TEXT_INSERT,     // İstemci <-> Sunucu: Metin ekleme
-        TEXT_DELETE,     // İstemci <-> Sunucu: Metin silme
-        TEXT_UPDATE,     // İstemci <-> Sunucu: Metin güncelleme
+        TEXT_INSERT, // İstemci <-> Sunucu: Metin ekleme
+        TEXT_DELETE, // İstemci <-> Sunucu: Metin silme
+        TEXT_UPDATE, // İstemci <-> Sunucu: Metin güncelleme
 
         // 4. Kullanıcı Yönetimi
-        REGISTER,        // İstemci -> Sunucu: Kayıt isteği
-        REGISTER_ACK,    // Sunucu -> İstemci: Kayıt yanıtı
-        LOGIN,          // İstemci -> Sunucu: Giriş isteği
-        LOGIN_ACK,      // Sunucu -> İstemci: Giriş yanıtı
+        REGISTER, // İstemci -> Sunucu: Kayıt isteği
+        REGISTER_ACK, // Sunucu -> İstemci: Kayıt yanıtı
+        LOGIN, // İstemci -> Sunucu: Giriş isteği
+        LOGIN_ACK, // Sunucu -> İstemci: Giriş yanıtı
 
         // 5. Diğer İşlemler
-        SAVE,           // İstemci -> Sunucu: Kaydetme isteği
-        ERROR           // Sunucu -> İstemci: Hata bildirimi
+        SAVE, // İstemci -> Sunucu: Kaydetme isteği
+        ERROR // Sunucu -> İstemci: Hata bildirimi
     }
 
     // Mesaj alanları
@@ -90,7 +90,8 @@ public class Message {
 
     public Integer getDataAsInt(String key) {
         String value = getData(key);
-        if (value == null) return null;
+        if (value == null)
+            return null;
 
         try {
             return Integer.parseInt(value);
@@ -101,7 +102,8 @@ public class Message {
 
     public Boolean getDataAsBoolean(String key) {
         String value = getData(key);
-        if (value == null) return null;
+        if (value == null)
+            return null;
         return Boolean.parseBoolean(value);
     }
 
@@ -202,34 +204,51 @@ public class Message {
 
     // Serialize - mesajı string'e çevir
     public String serialize() {
-        StringBuilder sb = new StringBuilder();
+        try {
+            StringBuilder sb = new StringBuilder();
 
-        // TYPE|USER_ID|FILE_ID|DATA|TIMESTAMP\n
-        sb.append(type != null ? type.name() : "NULL").append(DELIMITER);
-        sb.append(userId != null ? userId : "null").append(DELIMITER);
-        sb.append(fileId != null ? fileId : "null").append(DELIMITER);
-        sb.append(serializeData()).append(DELIMITER);
-        sb.append(timestamp).append(MESSAGE_END);
+            // TYPE|USER_ID|FILE_ID|DATA|TIMESTAMP\n
+            sb.append(type != null ? type.name() : "NULL").append(DELIMITER);
+            sb.append(userId != null ? userId : "null").append(DELIMITER);
+            sb.append(fileId != null ? fileId : "null").append(DELIMITER);
+            sb.append(serializeData()).append(DELIMITER);
+            sb.append(timestamp).append(MESSAGE_END);
 
-        return sb.toString();
+            // UTF-8 olarak kodla
+            return new String(sb.toString().getBytes("UTF-8"), "UTF-8");
+        } catch (Exception e) {
+            System.err.println("Mesaj serileştirme hatası: " + e.getMessage());
+            return null;
+        }
     }
 
     // Data'yı serialize et: key1:value1,key2:value2
     private String serializeData() {
-        if (data.isEmpty()) {
+        try {
+            if (data.isEmpty()) {
+                return "empty";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            boolean first = true;
+
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                if (!first)
+                    sb.append(DATA_SEPARATOR);
+
+                // Key ve value'yu UTF-8 olarak kodla
+                String key = new String(entry.getKey().getBytes("UTF-8"), "UTF-8");
+                String value = entry.getValue() != null ? new String(entry.getValue().getBytes("UTF-8"), "UTF-8") : "";
+
+                sb.append(key).append(KEY_VALUE_SEPARATOR).append(value);
+                first = false;
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            System.err.println("Data serileştirme hatası: " + e.getMessage());
             return "empty";
         }
-
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-
-        for (Map.Entry<String, String> entry : data.entrySet()) {
-            if (!first) sb.append(DATA_SEPARATOR);
-            sb.append(entry.getKey()).append(KEY_VALUE_SEPARATOR).append(entry.getValue());
-            first = false;
-        }
-
-        return sb.toString();
     }
 
     // Deserialize - string'den mesaj oluştur
@@ -239,6 +258,9 @@ public class Message {
         }
 
         try {
+            // UTF-8'e dönüştür
+            rawMessage = new String(rawMessage.getBytes("ISO-8859-1"), "UTF-8");
+
             // \n'i temizle
             String cleanMessage = rawMessage.trim();
             if (cleanMessage.endsWith(MESSAGE_END)) {
@@ -266,8 +288,8 @@ public class Message {
             // File ID
             message.fileId = "null".equals(parts[2]) ? null : parts[2];
 
-            // Data
-            message.parseData(parts[3]);
+            // Data - UTF-8 olarak parse et
+            message.parseData(new String(parts[3].getBytes("UTF-8"), "UTF-8"));
 
             // Timestamp
             try {
@@ -306,19 +328,41 @@ public class Message {
     }
 
     // Getters & Setters
-    public MessageType getType() { return type; }
-    public void setType(MessageType type) { this.type = type; }
+    public MessageType getType() {
+        return type;
+    }
 
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public void setType(MessageType type) {
+        this.type = type;
+    }
 
-    public String getFileId() { return fileId; }
-    public void setFileId(String fileId) { this.fileId = fileId; }
+    public String getUserId() {
+        return userId;
+    }
 
-    public long getTimestamp() { return timestamp; }
-    public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
 
-    public Map<String, String> getData() { return new HashMap<>(data); }
+    public String getFileId() {
+        return fileId;
+    }
+
+    public void setFileId(String fileId) {
+        this.fileId = fileId;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(long timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public Map<String, String> getData() {
+        return new HashMap<>(data);
+    }
 
     // Debug
     @Override
@@ -326,4 +370,4 @@ public class Message {
         return String.format("Message{type=%s, userId='%s', fileId='%s', data=%s, timestamp=%d}",
                 type, userId, fileId, data, timestamp);
     }
-} 
+}
