@@ -1,0 +1,11 @@
+org\multiuserwordeditor\model\Message$MessageType.class
+org\multiuserwordeditor\ui\MainWindow.class
+org\multiuserwordeditor\model\Document.class
+org\multiuserwordeditor\ui\MainWindow$1.class
+org\multiuserwordeditor\network\NetworkManager.class
+org\multiuserwordeditor\model\Message.class
+org\multiuserwordeditor\ui\LoginWindow$1.class
+org\multiuserwordeditor\model\Document$Selection.class
+org\multiuserwordeditor\Main.class
+org\multiuserwordeditor\ui\MainWindow$2.class
+org\multiuserwordeditor\ui\LoginWindow.class
