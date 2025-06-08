@@ -35,6 +35,7 @@ public class MainWindow extends JFrame {
     private JTextField searchField;
     private Color currentTextColor;
     private String currentTheme = "light";
+    private boolean isUpdatingFromServer = false;
 
     private static final int MAX_FILENAME_LENGTH = 100;
     private static final String INVALID_FILENAME_CHARS = "<>:\"|?*/\\\\";
@@ -265,9 +266,15 @@ public class MainWindow extends JFrame {
             System.out.println("Doküman içeriği alındı: " + filename);
 
             if (content != null) {
+                // ✅ INITIAL LOAD İÇİN DE FLAG SET ET
+                isUpdatingFromServer = true;
+
                 editorPane.setText(content);
                 editorPane.setCaretPosition(0);
                 lastContent = content; // Son içeriği güncelle
+
+                isUpdatingFromServer = false; // ✅ FLAG RESET
+
                 statusLabel.setText("Doküman açıldı: " + filename);
             } else {
                 statusLabel.setText("Doküman içeriği alınamadı: " + filename);
@@ -306,10 +313,16 @@ public class MainWindow extends JFrame {
     private void handleFileUpdated(Message message) {
         SwingUtilities.invokeLater(() -> {
             try {
+                // ✅ SERVER UPDATE FLAG'İ SET ET
+                isUpdatingFromServer = true;
+
                 String operation = message.getData("operation");
                 String text = message.getData("text");
                 int position = Integer.parseInt(message.getData("position"));
                 String userId = message.getUserId();
+
+                System.out.println("SERVER UPDATE: " + operation + " by " + userId +
+                        " at pos " + position);
 
                 if ("insert".equals(operation)) {
                     // Metin ekleme
@@ -334,9 +347,14 @@ public class MainWindow extends JFrame {
                     System.out.println("🗑️ " + userId + " sildi: " + length + " karakter (pos: " + position + ")");
                     statusLabel.setText(userId + " metin sildi");
                 }
+
             } catch (Exception e) {
                 System.err.println("Metin güncelleme hatası: " + e.getMessage());
                 e.printStackTrace();
+            } finally {
+                // ✅ MUTLAKA FLAG'İ RESET ET
+                isUpdatingFromServer = false;
+                System.out.println("DEBUG: Server update flag reset");
             }
         });
     }
@@ -880,14 +898,23 @@ public class MainWindow extends JFrame {
     }
 
     private void handleTextChange() {
-        if (!editorPane.isFocusOwner())
-            return; // Başka bir işlem tarafından yapılan değişiklikleri yoksay
+        // ✅ ÖNCE SERVER UPDATE KONTROLÜ
+        if (isUpdatingFromServer) {
+            System.out.println("DEBUG: Skipping text change - server update in progress");
+            return;
+        }
+
+        // ✅ FOCUS KONTROLÜ KALDIRILDI (problematic idi)
+        // if (!editorPane.isFocusOwner()) return;
 
         FileDisplayItem selected = documentList.getSelectedValue();
         if (selected != null) {
             try {
                 String currentContent = editorPane.getText();
                 String fileId = selected.getFileId();
+
+                System.out.println("DEBUG: handleTextChange - Current: " + currentContent.length() +
+                        ", Last: " + lastContent.length());
 
                 if (currentContent.length() > lastContent.length()) {
                     // Yeni karakter eklenmiş
@@ -898,7 +925,10 @@ public class MainWindow extends JFrame {
                         // Türkçe karakter işlemini EDT dışında yap
                         SwingUtilities.invokeLater(() -> {
                             try {
+                                isUpdatingFromServer = true; // ← FLAG SET ET
                                 editorPane.getDocument().remove(lastContent.length(), newText.length());
+                                isUpdatingFromServer = false; // ← FLAG RESET ET
+
                                 statusLabel.setText(
                                         "Lütfen İngilizce karakterler kullanınız (ç, ğ, ı, ö, ş, ü kullanılamaz)");
                                 JOptionPane.showMessageDialog(this,
@@ -906,6 +936,7 @@ public class MainWindow extends JFrame {
                                         "Geçersiz Karakter",
                                         JOptionPane.WARNING_MESSAGE);
                             } catch (Exception e) {
+                                isUpdatingFromServer = false; // ← HATA DURUMUNDA RESET
                                 ExceptionHandler.handle(e, "Metin düzeltme sırasında hata oluştu");
                                 e.printStackTrace();
                             }
@@ -914,17 +945,18 @@ public class MainWindow extends JFrame {
                     }
 
                     int position = lastContent.length();
-                    System.out.println(
-                            "Metin ekleniyor - FileId: " + fileId + ", Position: " + position + ", Text: " + newText);
+                    System.out.println("USER INPUT: Metin ekleniyor - FileId: " + fileId +
+                            ", Position: " + position + ", Text: " + newText);
                     networkManager.insertText(fileId, position, newText);
                     lastContent = currentContent;
+
                 } else if (currentContent.length() < lastContent.length()) {
                     // Karakter silinmiş
                     int position = currentContent.length();
                     int length = lastContent.length() - currentContent.length();
 
-                    System.out.println(
-                            "Metin siliniyor - FileId: " + fileId + ", Position: " + position + ", Length: " + length);
+                    System.out.println("USER INPUT: Metin siliniyor - FileId: " + fileId +
+                            ", Position: " + position + ", Length: " + length);
                     networkManager.deleteText(fileId, position, length);
                     lastContent = currentContent;
                 }
