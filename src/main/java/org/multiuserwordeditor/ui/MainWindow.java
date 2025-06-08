@@ -313,48 +313,58 @@ public class MainWindow extends JFrame {
     private void handleFileUpdated(Message message) {
         SwingUtilities.invokeLater(() -> {
             try {
-                // ✅ SERVER UPDATE FLAG'İ SET ET
                 isUpdatingFromServer = true;
 
                 String operation = message.getData("operation");
-                String text = message.getData("text");
+                String textValue = message.getData("text");
                 int position = Integer.parseInt(message.getData("position"));
                 String userId = message.getUserId();
 
-                System.out.println("SERVER UPDATE: " + operation + " by " + userId +
-                        " at pos " + position);
+                // 🔧 CLIENT-SIDE SPECIAL CHARACTER DECODING
+                String text;
+                if ("__SPACE__".equals(textValue)) {
+                    text = " ";
+                    System.out.println("DEBUG: CLIENT - Space decoded");
+                } else if ("__NEWLINE__".equals(textValue)) {
+                    text = "\n";
+                    System.out.println("DEBUG: CLIENT - Newline decoded");
+                } else if ("__CRLF__".equals(textValue)) {
+                    text = "\r\n";
+                    System.out.println("DEBUG: CLIENT - CRLF decoded");
+                } else if ("__TAB__".equals(textValue)) {
+                    text = "\t";
+                    System.out.println("DEBUG: CLIENT - Tab decoded");
+                } else {
+                    text = textValue;
+                }
 
-                if ("insert".equals(operation)) {
-                    // Metin ekleme
+                System.out.println("SERVER UPDATE: " + operation + " by " + userId +
+                        " at pos " + position + " char: " + (text.equals("\n") ? "NEWLINE" :
+                        text.equals(" ") ? "SPACE" : "'" + text + "'"));
+
+                if ("insert".equals(operation) || "INSERT".equals(operation)) {
                     String currentContent = editorPane.getText();
                     String newContent = currentContent.substring(0, position) + text
                             + currentContent.substring(position);
                     editorPane.setText(newContent);
                     lastContent = newContent;
 
-                    System.out.println("✏️ " + userId + " ekledi: \"" + text + "\" (pos: " + position + ")");
+                    if (text.equals("\n")) {
+                        System.out.println("✏️ " + userId + " added NEWLINE at position " + position);
+                    } else if (text.equals(" ")) {
+                        System.out.println("✏️ " + userId + " added SPACE at position " + position);
+                    } else {
+                        System.out.println("✏️ " + userId + " added: \"" + text + "\" at position " + position);
+                    }
+
                     statusLabel.setText(userId + " metin ekledi");
-
-                } else if ("delete".equals(operation)) {
-                    // Metin silme
-                    int length = Integer.parseInt(message.getData("length"));
-                    String currentContent = editorPane.getText();
-                    String newContent = currentContent.substring(0, position)
-                            + currentContent.substring(position + length);
-                    editorPane.setText(newContent);
-                    lastContent = newContent;
-
-                    System.out.println("🗑️ " + userId + " sildi: " + length + " karakter (pos: " + position + ")");
-                    statusLabel.setText(userId + " metin sildi");
                 }
 
             } catch (Exception e) {
-                System.err.println("Metin güncelleme hatası: " + e.getMessage());
+                System.err.println("File update error: " + e.getMessage());
                 e.printStackTrace();
             } finally {
-                // ✅ MUTLAKA FLAG'İ RESET ET
                 isUpdatingFromServer = false;
-                System.out.println("DEBUG: Server update flag reset");
             }
         });
     }
@@ -545,6 +555,11 @@ public class MainWindow extends JFrame {
         JButton findButton = new JButton("Bul");
         findButton.addActionListener(e -> findText(searchField.getText()));
 
+        // 🔧 SPACE TEST BUTONU EKLE (Debug için)
+        JButton spaceTestButton = new JButton("Space");
+        spaceTestButton.setToolTipText("Space Test (Debug)");
+
+
         toolBar.add(fontFamilyCombo);
         toolBar.add(fontSizeCombo);
         toolBar.addSeparator();
@@ -556,6 +571,9 @@ public class MainWindow extends JFrame {
         toolBar.addSeparator();
         toolBar.add(searchField);
         toolBar.add(findButton);
+        // 🔧 SPACE TEST BUTONU EKLE
+        toolBar.addSeparator();
+        toolBar.add(spaceTestButton);
 
         // Editör
         editorPane = new JTextPane();
@@ -593,17 +611,106 @@ public class MainWindow extends JFrame {
             }
         });
 
+        // 🔧 ESKİ DocumentListener'ı KALDIR ve YENİ EKLE
+        // ❌ ESKİ KOD:
+    /*
+    editorPane.getDocument().addDocumentListener(new DocumentListener() {
+        public void insertUpdate(DocumentEvent e) {
+            handleTextChange();
+        }
+
+        public void removeUpdate(DocumentEvent e) {
+            handleTextChange();
+        }
+
+        public void changedUpdate(DocumentEvent e) {
+            handleTextChange();
+        }
+    });
+    */
+
+        // ✅ YENİ KOD: Space-aware DocumentListener
         editorPane.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
             public void insertUpdate(DocumentEvent e) {
-                handleTextChange();
+                System.out.println("DEBUG: DocumentListener.insertUpdate - isUpdatingFromServer: " + isUpdatingFromServer);
+
+                // Server update ise işleme
+                if (!isUpdatingFromServer) {
+                    // EDT kontrolü
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        handleTextChange();
+                    } else {
+                        SwingUtilities.invokeLater(() -> handleTextChange());
+                    }
+                } else {
+                    System.out.println("DEBUG: Skipping handleTextChange - server update");
+                }
             }
 
+            @Override
             public void removeUpdate(DocumentEvent e) {
-                handleTextChange();
+                System.out.println("DEBUG: DocumentListener.removeUpdate - isUpdatingFromServer: " + isUpdatingFromServer);
+
+                if (!isUpdatingFromServer) {
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        handleTextChange();
+                    } else {
+                        SwingUtilities.invokeLater(() -> handleTextChange());
+                    }
+                } else {
+                    System.out.println("DEBUG: Skipping handleTextChange - server update");
+                }
             }
 
+            @Override
             public void changedUpdate(DocumentEvent e) {
-                handleTextChange();
+                // Style değişiklikleri - space karakteri için gerekli değil
+                System.out.println("DEBUG: DocumentListener.changedUpdate (style change)");
+            }
+        });
+
+        // 🔧 SPACE DEBUG İÇİN KeyListener EKLE
+        editorPane.addKeyListener(new KeyListener() {
+            @Override
+            public void keyTyped(KeyEvent e) {
+                char c = e.getKeyChar();
+
+                if (c == ' ' || c == '\u0020') {
+                    System.out.println("DEBUG: *** SPACE TYPED! *** char='" + c + "' ascii=" + (int)c);
+                }
+
+                // Diğer özel karakterler
+                if (Character.isISOControl(c) && c != '\b' && c != '\t' && c != '\n' && c != '\r') {
+                    System.out.println("DEBUG: Control character typed: " + (int)c);
+                }
+            }
+
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+                    System.out.println("DEBUG: *** SPACE PRESSED! *** keyCode=" + e.getKeyCode());
+                }
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+                    System.out.println("DEBUG: *** SPACE RELEASED! *** keyCode=" + e.getKeyCode());
+                }
+            }
+        });
+
+        // 🔧 SPACE INPUT DEBUG - FocusListener ekle
+        editorPane.addFocusListener(new FocusListener() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                System.out.println("DEBUG: EditorPane focus GAINED");
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                System.out.println("DEBUG: EditorPane focus LOST");
             }
         });
 
@@ -611,8 +718,10 @@ public class MainWindow extends JFrame {
         panel.add(toolBar, BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
 
+        System.out.println("DEBUG: createEditorPanel completed with space debugging");
         return panel;
     }
+
 
     private void updateFontStyle() {
         StyledDocument doc = editorPane.getStyledDocument();
@@ -898,14 +1007,10 @@ public class MainWindow extends JFrame {
     }
 
     private void handleTextChange() {
-        // ✅ ÖNCE SERVER UPDATE KONTROLÜ
         if (isUpdatingFromServer) {
-            System.out.println("DEBUG: Skipping text change - server update in progress");
+            System.out.println("DEBUG: handleTextChange SKIPPED - isUpdatingFromServer=true");
             return;
         }
-
-        // ✅ FOCUS KONTROLÜ KALDIRILDI (problematic idi)
-        // if (!editorPane.isFocusOwner()) return;
 
         FileDisplayItem selected = documentList.getSelectedValue();
         if (selected != null) {
@@ -913,59 +1018,244 @@ public class MainWindow extends JFrame {
                 String currentContent = editorPane.getText();
                 String fileId = selected.getFileId();
 
-                System.out.println("DEBUG: handleTextChange - Current: " + currentContent.length() +
-                        ", Last: " + lastContent.length());
+                System.out.println("=== HANDLE TEXT CHANGE DEBUG ===");
+                System.out.println("DEBUG: Current content length: " + currentContent.length());
+                System.out.println("DEBUG: Last content length: " + lastContent.length());
+                System.out.println("DEBUG: Length difference: " + (currentContent.length() - lastContent.length()));
 
                 if (currentContent.length() > lastContent.length()) {
-                    // Yeni karakter eklenmiş
-                    String newText = currentContent.substring(lastContent.length());
+                    // INSERT OPERATION
+                    int insertPosition = findInsertPosition(lastContent, currentContent);
+                    int insertLength = currentContent.length() - lastContent.length();
+                    String insertedText = currentContent.substring(insertPosition, insertPosition + insertLength);
 
-                    // Türkçe karakter kontrolü
-                    if (containsTurkishCharacters(newText)) {
-                        // Türkçe karakter işlemini EDT dışında yap
-                        SwingUtilities.invokeLater(() -> {
-                            try {
-                                isUpdatingFromServer = true; // ← FLAG SET ET
-                                editorPane.getDocument().remove(lastContent.length(), newText.length());
-                                isUpdatingFromServer = false; // ← FLAG RESET ET
+                    System.out.println("DEBUG: INSERT detected");
+                    System.out.println("DEBUG: Insert position: " + insertPosition);
+                    System.out.println("DEBUG: Insert length: " + insertLength);
+                    System.out.println("DEBUG: Inserted text chars:");
 
-                                statusLabel.setText(
-                                        "Lütfen İngilizce karakterler kullanınız (ç, ğ, ı, ö, ş, ü kullanılamaz)");
-                                JOptionPane.showMessageDialog(this,
-                                        "Lütfen İngilizce karakterler kullanınız.\nTürkçe karakterler (ç, ğ, ı, ö, ş, ü) desteklenmemektedir.",
-                                        "Geçersiz Karakter",
-                                        JOptionPane.WARNING_MESSAGE);
-                            } catch (Exception e) {
-                                isUpdatingFromServer = false; // ← HATA DURUMUNDA RESET
-                                ExceptionHandler.handle(e, "Metin düzeltme sırasında hata oluştu");
-                                e.printStackTrace();
-                            }
-                        });
+                    for (int i = 0; i < insertedText.length(); i++) {
+                        char c = insertedText.charAt(i);
+                        System.out.println("  [" + i + "] = '" + c + "' (ASCII: " + (int)c + ")");
+                        if (c == '\n') System.out.println("    ^^ NEWLINE CHARACTER ^^");
+                        if (c == ' ') System.out.println("    ^^ SPACE CHARACTER ^^");
+                    }
+
+                    // Türkçe karakter kontrolü (special characters hariç)
+                    if (containsTurkishCharacters(insertedText)) {
+                        handleTurkishCharacterError(insertPosition, insertedText.length());
                         return;
                     }
 
-                    int position = lastContent.length();
-                    System.out.println("USER INPUT: Metin ekleniyor - FileId: " + fileId +
-                            ", Position: " + position + ", Text: " + newText);
-                    networkManager.insertText(fileId, position, newText);
+                    // Her karakteri ayrı ayrı gönder
+                    for (int i = 0; i < insertedText.length(); i++) {
+                        char c = insertedText.charAt(i);
+                        String singleChar = String.valueOf(c);
+                        int charPosition = insertPosition + i;
+
+                        System.out.println("DEBUG: Sending character '" +
+                                (c == '\n' ? "NEWLINE" : c == ' ' ? "SPACE" : String.valueOf(c)) +
+                                "' at position " + charPosition);
+
+                        networkManager.insertText(fileId, charPosition, singleChar);
+
+                        // Newline için ekstra delay
+                        if (c == '\n') {
+                            try { Thread.sleep(50); } catch (InterruptedException e) {}
+                        } else if (insertedText.length() > 3) {
+                            try { Thread.sleep(10); } catch (InterruptedException e) {}
+                        }
+                    }
+
                     lastContent = currentContent;
+                    System.out.println("DEBUG: INSERT completed - lastContent updated");
 
                 } else if (currentContent.length() < lastContent.length()) {
-                    // Karakter silinmiş
-                    int position = currentContent.length();
-                    int length = lastContent.length() - currentContent.length();
+                    // DELETE OPERATION
+                    int deletePosition = findDeletePosition(currentContent, lastContent);
+                    int deleteLength = lastContent.length() - currentContent.length();
 
-                    System.out.println("USER INPUT: Metin siliniyor - FileId: " + fileId +
-                            ", Position: " + position + ", Length: " + length);
-                    networkManager.deleteText(fileId, position, length);
+                    System.out.println("DEBUG: DELETE detected");
+                    System.out.println("DEBUG: Delete position: " + deletePosition);
+                    System.out.println("DEBUG: Delete length: " + deleteLength);
+
+                    // Silinen karakterleri göster
+                    String deletedText = lastContent.substring(deletePosition, deletePosition + deleteLength);
+                    System.out.println("DEBUG: Deleted text: '" + deletedText.replace("\n", "\\n") + "'");
+
+                    networkManager.deleteText(fileId, deletePosition, deleteLength);
                     lastContent = currentContent;
+                    System.out.println("DEBUG: DELETE completed - lastContent updated");
                 }
 
+                System.out.println("=== HANDLE TEXT CHANGE END ===");
+
             } catch (Exception e) {
-                ExceptionHandler.handle(e, "Metin işlemi sırasında hata oluştu");
+                System.err.println("ERROR: handleTextChange exception: " + e.getMessage());
+                e.printStackTrace();
             }
         }
     }
+
+    private int findInsertPosition(String oldText, String newText) {
+        if (oldText.isEmpty()) {
+            System.out.println("DEBUG: findInsertPosition - oldText empty, returning 0");
+            return 0;
+        }
+
+        // En uzun ortak prefix'i bul
+        int commonPrefixLength = 0;
+        int minLength = Math.min(oldText.length(), newText.length());
+
+        for (int i = 0; i < minLength; i++) {
+            if (oldText.charAt(i) == newText.charAt(i)) {
+                commonPrefixLength++;
+            } else {
+                break;
+            }
+        }
+
+        System.out.println("DEBUG: findInsertPosition - common prefix length: " + commonPrefixLength);
+
+        // Pozisyon debug
+        if (commonPrefixLength > 0) {
+            char lastCommonChar = oldText.charAt(commonPrefixLength - 1);
+            System.out.println("DEBUG: Last common character: '" +
+                    (lastCommonChar == '\n' ? "NEWLINE" : String.valueOf(lastCommonChar)) + "'");
+        }
+
+        return commonPrefixLength;
+    }
+
+    private int findDeletePosition(String newText, String oldText) {
+        if (newText.isEmpty()) return 0;
+
+        // En uzun ortak prefix'i bul
+        int commonPrefixLength = 0;
+        int minLength = Math.min(oldText.length(), newText.length());
+
+        for (int i = 0; i < minLength; i++) {
+            if (oldText.charAt(i) == newText.charAt(i)) {
+                commonPrefixLength++;
+            } else {
+                break;
+            }
+        }
+
+        return commonPrefixLength;
+    }
+
+    private void handleTurkishCharacterError(int position, int length) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                isUpdatingFromServer = true;
+                editorPane.getDocument().remove(position, length);
+                isUpdatingFromServer = false;
+
+                statusLabel.setText("Lütfen İngilizce karakterler kullanınız (ç, ğ, ı, ö, ş, ü kullanılamaz)");
+                JOptionPane.showMessageDialog(this,
+                        "Lütfen İngilizce karakterler kullanınız.\nTürkçe karakterler (ç, ğ, ı, ö, ş, ü) desteklenmemektedir.",
+                        "Geçersiz Karakter",
+                        JOptionPane.WARNING_MESSAGE);
+            } catch (Exception e) {
+                isUpdatingFromServer = false;
+                ExceptionHandler.handle(e, "Metin düzeltme sırasında hata oluştu");
+            }
+        });
+    }
+    private void setupTextEditor() {
+        // 🔧 MEVCUT LISTENER'I KALDIR (eğer varsa)
+        // Document.getDocumentListeners() mevcut olmadığı için manuel takip
+
+        // Yeni DocumentListener ekle (önceki otomatik olarak replace olacak)
+        editorPane.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                // EDT kontrolü ve handleTextChange çağrısı
+                if (SwingUtilities.isEventDispatchThread()) {
+                    handleTextChange();
+                } else {
+                    SwingUtilities.invokeLater(() -> handleTextChange());
+                }
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                if (SwingUtilities.isEventDispatchThread()) {
+                    handleTextChange();
+                } else {
+                    SwingUtilities.invokeLater(() -> handleTextChange());
+                }
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                // Style changes - genellikle boş
+                // Space karakteri için gerekli değil
+            }
+        });
+
+        // 🔧 Space tuşu için özel KeyListener ekle (DEBUG amaçlı)
+        editorPane.addKeyListener(new KeyListener() {
+            @Override
+            public void keyTyped(KeyEvent e) {
+                char c = e.getKeyChar();
+                if (c == ' ') {
+                    System.out.println("DEBUG: Space key typed - char: '" + c + "' (ASCII: " + (int)c + ")");
+                }
+
+                // Özel karakterleri logla
+                if (Character.isISOControl(c) && c != '\b' && c != '\t' && c != '\n') {
+                    System.out.println("DEBUG: Control character typed: " + (int)c);
+                }
+            }
+
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+                    System.out.println("DEBUG: Space key pressed - keyCode: " + e.getKeyCode());
+                }
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
+                    System.out.println("DEBUG: Space key released - keyCode: " + e.getKeyCode());
+                }
+            }
+        });
+
+        System.out.println("DEBUG: Text editor setup completed with space character debugging");
+    }
+
+    public void testSpaceInsertion() {
+        try {
+            String testText = "Hello World Test"; // Space içeren test
+            System.out.println("=== SPACE TEST BAŞLADI ===");
+
+            FileDisplayItem selected = documentList.getSelectedValue();
+            if (selected != null) {
+                String fileId = selected.getFileId();
+
+                // Her karakteri tek tek test et
+                for (int i = 0; i < testText.length(); i++) {
+                    char c = testText.charAt(i);
+                    if (c == ' ') {
+                        System.out.println("TEST: Space karakteri gönderiliyor - pos: " + i);
+                    }
+                    networkManager.insertText(fileId, i, String.valueOf(c));
+                    Thread.sleep(100); // Görsel test için yavaşlat
+                }
+            }
+
+            System.out.println("=== SPACE TEST BİTTİ ===");
+
+        } catch (Exception e) {
+            System.err.println("Space test error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
 
     private JPanel createChatPanel() {
         JPanel panel = new JPanel(new BorderLayout(5, 5));

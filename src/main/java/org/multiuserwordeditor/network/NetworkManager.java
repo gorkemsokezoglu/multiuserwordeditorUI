@@ -48,12 +48,34 @@ public class NetworkManager {
                     new InputStreamReader(socket.getInputStream(), "UTF-8"));
             isConnected = true;
 
-            // Mesaj okuma thread'ini başlat
+            // 🔧 YENİ: Newline-aware mesaj okuma
             executorService.submit(() -> {
                 try {
+                    StringBuilder messageBuffer = new StringBuilder();
                     String line;
+
                     while ((line = reader.readLine()) != null) {
-                        handleServerMessage(line);
+                        System.out.println("DEBUG: Raw line received: '" + line + "'");
+
+                        // Mesaj sonu kontrolü - | sayısı ile
+                        if (isCompleteMessage(line)) {
+                            // Tek başına complete mesaj
+                            handleServerMessage(line);
+                            messageBuffer.setLength(0); // Buffer'ı temizle
+                        } else {
+                            // Parçalı mesaj - buffer'a ekle
+                            if (messageBuffer.length() > 0) {
+                                messageBuffer.append("\n"); // Newline'ı restore et
+                            }
+                            messageBuffer.append(line);
+
+                            // Buffer'daki mesaj complete mi kontrol et
+                            String bufferedMessage = messageBuffer.toString();
+                            if (isCompleteMessage(bufferedMessage)) {
+                                handleServerMessage(bufferedMessage);
+                                messageBuffer.setLength(0); // Buffer'ı temizle
+                            }
+                        }
                     }
                 } catch (IOException e) {
                     handleError("Sunucu bağlantısı kesildi", e);
@@ -63,6 +85,45 @@ public class NetworkManager {
             LOGGER.info("Sunucuya bağlanıldı: " + host + ":" + port);
         } catch (IOException e) {
             handleError("Sunucuya bağlanılamadı", e);
+        }
+    }
+    private boolean isCompleteMessage(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return false;
+        }
+
+        // 🔧 YENİ: Daha akıllı pipe kontrolü
+        // İlk 3 pipe'ı bul (TYPE|USER_ID|FILE_ID|)
+        int firstPipe = message.indexOf('|');
+        if (firstPipe == -1) return false;
+
+        int secondPipe = message.indexOf('|', firstPipe + 1);
+        if (secondPipe == -1) return false;
+
+        int thirdPipe = message.indexOf('|', secondPipe + 1);
+        if (thirdPipe == -1) return false;
+
+        // Son pipe'ı bul (|TIMESTAMP)
+        int lastPipe = message.lastIndexOf('|');
+        if (lastPipe == thirdPipe) return false; // DATA kısmı yok
+
+        // TIMESTAMP kısmı sayı olmalı
+        try {
+            String timestampPart = message.substring(lastPipe + 1);
+            Long.parseLong(timestampPart.trim());
+
+            boolean isComplete = true;
+
+            // Debug için log
+            System.out.println("DEBUG: Smart message check - isComplete: " + isComplete +
+                    " timestamp: '" + timestampPart.trim() + "' message: '" +
+                    (message.length() > 100 ? message.substring(0, 100) + "..." : message) + "'");
+
+            return isComplete;
+
+        } catch (NumberFormatException e) {
+            System.out.println("DEBUG: Invalid timestamp in message: '" + message + "'");
+            return false;
         }
     }
 
@@ -221,12 +282,43 @@ public class NetworkManager {
 
     public void insertText(String fileId, int position, String text) {
         try {
-            Message insertMsg = Message.createTextInsert(userId, fileId, position, text);
-            LOGGER.info("Metin ekleme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position);
-            writer.println(insertMsg.serialize());
-            writer.flush();
+            if (text == null || text.length() == 0) {
+                LOGGER.warning("insertText: Invalid text");
+                return;
+            }
+
+            // 🔧 SPECIAL CHARACTERS ENCODING
+            String data;
+            if (text.equals(" ")) {
+                // Space character
+                data = "position:" + position + ",text:__SPACE__,userId:" + this.userId;
+                System.out.println("DEBUG: Space character encoded as __SPACE__");
+            } else if (text.equals("\n")) {
+                // 🔧 NEWLINE CHARACTER
+                data = "position:" + position + ",text:__NEWLINE__,userId:" + this.userId;
+                System.out.println("DEBUG: Newline character encoded as __NEWLINE__");
+            } else if (text.equals("\r\n")) {
+                // Windows CRLF
+                data = "position:" + position + ",text:__CRLF__,userId:" + this.userId;
+                System.out.println("DEBUG: CRLF encoded as __CRLF__");
+            } else if (text.equals("\t")) {
+                // Tab character
+                data = "position:" + position + ",text:__TAB__,userId:" + this.userId;
+                System.out.println("DEBUG: Tab character encoded as __TAB__");
+            } else {
+                // Normal characters
+                data = "position:" + position + ",text:" + text + ",userId:" + this.userId;
+            }
+
+            System.out.println("DEBUG: insertText final data: " + data);
+
+            sendMessage("TEXT_INSERT", this.userId, fileId, data);
+
+            LOGGER.info("insertText: Metin ekleme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position);
+
         } catch (Exception e) {
-            handleError("Metin eklenirken hata", e);
+            LOGGER.severe("insertText error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -369,13 +461,17 @@ public class NetworkManager {
 
     public void deleteText(String fileId, int position, int length) {
         try {
-            Message deleteMsg = Message.createTextDelete(userId, fileId, position, length);
-            LOGGER.info("Metin silme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position + ", Length: "
-                    + length);
-            writer.println(deleteMsg.serialize());
-            writer.flush();
+            String data = "position:" + position + ",length:" + length + ",userId:" + this.userId;
+
+            // 🔧 DOĞRU sendMessage() ÇAĞRISI
+            sendMessage("TEXT_DELETE", this.userId, fileId, data);
+
+            LOGGER.info("deleteText: Metin silme isteği gönderiliyor - FileId: " + fileId +
+                    ", Position: " + position + ", Length: " + length);
+
         } catch (Exception e) {
-            handleError("Metin silinirken hata", e);
+            LOGGER.severe("deleteText error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }
