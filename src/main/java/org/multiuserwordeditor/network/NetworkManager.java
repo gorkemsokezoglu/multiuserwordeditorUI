@@ -209,33 +209,50 @@ public class NetworkManager {
 
     public void createDocument(String filename) {
         try {
+            System.out.println("=== ENHANCED NETWORK MANAGER CREATE DOCUMENT ===");
+            System.out.println("DEBUG: Creating document with name: '" + filename + "'");
+
             if (filename == null || filename.trim().isEmpty()) {
+                System.err.println("ERROR: Document name is null or empty");
                 throw new IllegalArgumentException("Dosya adı boş olamaz");
             }
 
-            // Dosya adını temizle ve UTF-8'e dönüştür
+            if (!isConnected()) {
+                System.err.println("ERROR: Not connected to server");
+                throw new IllegalStateException("Sunucuya bağlı değil");
+            }
+
+            // Clean filename and convert to UTF-8
             String cleanFilename = new String(filename.trim().getBytes("UTF-8"), "UTF-8");
 
-            // Mesajı oluştur ve gönder
+            // Create and send message
             Message createMsg = Message.createFileCreate(userId, cleanFilename);
             String rawMessage = createMsg.serialize();
 
-            // Debug log ekle
-            LOGGER.info("Doküman oluşturma isteği gönderiliyor - UserId: " + userId + ", Filename: " + cleanFilename);
-            System.out.println("DEBUG: Doküman oluşturma isteği - Raw mesaj: " + rawMessage);
+            System.out.println("DEBUG: Document creation request - UserId: " + userId + ", Filename: " + cleanFilename);
+            System.out.println("DEBUG: Raw message: " + rawMessage);
 
-            // UTF-8 olarak gönder
+            // Send as UTF-8
             writer.println(rawMessage);
             writer.flush();
 
-            // Doküman listesini hemen güncelle
-            requestFileList();
+            // 🔧 ENHANCED: Auto-refresh file list after creation with delay
+            scheduleFileListRefresh();
+
+            LOGGER.info("Document creation request sent - UserId: " + userId + ", Filename: " + cleanFilename);
+            System.out.println("SUCCESS: FILE_CREATE message sent successfully");
+            System.out.println("=== ENHANCED NETWORK MANAGER CREATE DOCUMENT END ===");
+
         } catch (IllegalArgumentException e) {
+            System.err.println("ERROR: Invalid filename: " + e.getMessage());
             handleError("Geçersiz dosya adı", e);
+            throw e;
         } catch (Exception e) {
-            handleError("Doküman oluşturulurken hata oluştu", e);
-            LOGGER.severe("Doküman oluşturma hatası: " + e.getMessage());
+            System.err.println("ERROR: Failed to create document '" + filename + "': " + e.getMessage());
             e.printStackTrace();
+            handleError("Doküman oluşturulurken hata oluştu", e);
+            LOGGER.severe("Document creation error: " + e.getMessage());
+            throw new RuntimeException("Document creation failed", e);
         }
     }
 
@@ -348,12 +365,68 @@ public class NetworkManager {
 
     public void requestFileList() {
         try {
+            System.out.println("=== ENHANCED NETWORK MANAGER REQUEST FILE LIST ===");
+
+            if (!isConnected()) {
+                System.err.println("ERROR: Not connected to server");
+                throw new IllegalStateException("Sunucuya bağlı değil");
+            }
+
             Message listMsg = Message.createFileList(userId);
-            writer.println(listMsg.serialize());
+            String rawMessage = listMsg.serialize();
+
+            System.out.println("DEBUG: Sending FILE_LIST request");
+            System.out.println("DEBUG: Raw message: " + rawMessage);
+
+            writer.println(rawMessage);
             writer.flush();
+
+            System.out.println("SUCCESS: FILE_LIST request sent");
+            System.out.println("=== ENHANCED NETWORK MANAGER REQUEST FILE LIST END ===");
+
         } catch (Exception e) {
+            System.err.println("ERROR: Failed to request file list: " + e.getMessage());
+            e.printStackTrace();
             handleError("Dosya listesi alınırken hata", e);
+
+            // 🔧 RETRY MECHANISM: Auto-retry after 2 seconds
+            scheduleFileListRetry();
         }
+    }
+    private void scheduleFileListRefresh() {
+        // Use a timer to refresh file list after a short delay
+        java.util.Timer refreshTimer = new java.util.Timer();
+        refreshTimer.schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("DEBUG: Auto-refreshing file list after document creation");
+                try {
+                    requestFileList();
+                } catch (Exception e) {
+                    System.err.println("ERROR: Auto-refresh failed: " + e.getMessage());
+                }
+                refreshTimer.cancel();
+            }
+        }, 800); // 800ms delay to ensure server processing is complete
+    }
+
+    /**
+     * 🔧 NEW: Schedule file list retry on failure
+     */
+    private void scheduleFileListRetry() {
+        java.util.Timer retryTimer = new java.util.Timer();
+        retryTimer.schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                System.out.println("DEBUG: Retrying file list request...");
+                try {
+                    requestFileList();
+                } catch (Exception retryEx) {
+                    System.err.println("ERROR: Retry also failed: " + retryEx.getMessage());
+                }
+                retryTimer.cancel();
+            }
+        }, 1000); // 2 second retry delay
     }
 
     private void handleServerMessage(String rawMessage) {
@@ -430,6 +503,10 @@ public class NetworkManager {
             System.err.println("ERROR: FILE_LIST_RESP raw parse hatası: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+    public void forceFileListRefresh() {
+        System.out.println("DEBUG: Force refresh requested");
+        requestFileList();
     }
 
     private void handleError(String message, Exception e) {

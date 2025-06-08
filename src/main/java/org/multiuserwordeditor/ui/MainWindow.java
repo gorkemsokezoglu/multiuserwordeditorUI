@@ -48,9 +48,10 @@ public class MainWindow extends JFrame {
         super("Çok Kullanıcılı Metin Editörü");
         this.networkManager = networkManager;
         this.userId = userId;
-        ExceptionHandler.setMainFrame(this);
         initialize();
         setupNetworkManager();
+        ExceptionHandler.setMainFrame(this);
+        requestDocumentList();
         setupDragAndDrop();
     }
 
@@ -88,7 +89,6 @@ public class MainWindow extends JFrame {
         contentPane.add(statusLabel, BorderLayout.SOUTH);
 
         applyTheme(currentTheme);
-        requestDocumentList();
     }
 
     private void setupNetworkManager() {
@@ -172,58 +172,90 @@ public class MainWindow extends JFrame {
         }
     }
 
+    private void handleManualRefresh() {
+        System.out.println("DEBUG: Manual refresh requested by user");
+        statusLabel.setText("🔄 Liste yenileniyor...");
+
+        // Use NetworkManager's force refresh method
+        networkManager.forceFileListRefresh();
+    }
+
+    /**
+     * 🔧 UPDATED: Enhanced file list response handler with better error handling
+     */
     private void handleFileListResponse(Message message) {
         SwingUtilities.invokeLater(() -> {
             try {
-                System.out.println("=== FINAL FILE LIST DEBUG ===");
-                String filesData = message.getData("files");
-                System.out.println("Message'dan gelen files: '" + filesData + "'");
-                System.out.println("Files string uzunluk: " + (filesData != null ? filesData.length() : 0));
+                System.out.println("=== ENHANCED FILE LIST RESPONSE DEBUG ===");
 
-                // Mevcut listeyi temizle
+                // Clear current list
+                int oldSize = listModel.size();
                 listModel.clear();
+                System.out.println("DEBUG: Cleared list (previous size: " + oldSize + ")");
+
+                String filesData = message.getData("files");
+                System.out.println("DEBUG: Raw files data: '" + filesData + "'");
+                System.out.println("DEBUG: Files data length: " + (filesData != null ? filesData.length() : "null"));
 
                 if (filesData == null || filesData.trim().isEmpty()) {
-                    System.out.println("DEBUG: Files string boş veya null");
-                    statusLabel.setText("Doküman listesi boş");
+                    System.out.println("DEBUG: No files data received");
+                    statusLabel.setText("📋 Doküman listesi boş");
                     return;
                 }
 
-                // Dosya listesini parse et ve ekle (| karakteri ile ayrılmış)
+                // Parse and add files (| separated)
                 String[] files = filesData.split("\\|");
-                for (String file : files) {
-                    if (!file.trim().isEmpty()) {
+                int addedCount = 0;
+
+                System.out.println("DEBUG: Processing " + files.length + " file entries");
+
+                for (int i = 0; i < files.length; i++) {
+                    String file = files[i].trim();
+                    System.out.println("DEBUG: Processing file entry " + (i+1) + ": '" + file + "'");
+
+                    if (!file.isEmpty()) {
                         String[] parts = file.split(":");
                         if (parts.length >= 2) {
                             String fileId = parts[0].trim();
                             String fileName = parts[1].trim();
                             String userCount = parts.length > 2 ? parts[2].trim() : "0";
 
-                            System.out.println("DEBUG: Dosya ekleniyor - ID: " + fileId + ", Name: " + fileName
-                                    + ", UserCount: " + userCount);
+                            System.out.println("DEBUG: Parsed - ID: '" + fileId + "', Name: '" + fileName + "', Users: " + userCount);
 
-                            // Dosya bilgilerini sakla
+                            // Create and add item
                             FileDisplayItem item = new FileDisplayItem(fileId, fileName, userCount);
                             listModel.addElement(item);
+                            addedCount++;
+
+                            System.out.println("SUCCESS: Added file to list: " + fileName + " (" + fileId + ")");
+                        } else {
+                            System.err.println("WARNING: Invalid file entry format: '" + file + "' (expected at least 2 parts, got " + parts.length + ")");
                         }
+                    } else {
+                        System.out.println("DEBUG: Skipping empty file entry at index " + i);
                     }
                 }
 
-                // Liste güncellendi bilgisini göster
-                int docCount = listModel.size();
-                String statusText = "Doküman listesi güncellendi. ";
-                if (docCount == 0) {
-                    statusText += "Henüz doküman yok.";
+                // Update UI and status
+                documentList.revalidate();
+                documentList.repaint();
+
+                String statusText;
+                if (addedCount == 0) {
+                    statusText = "📋 Henüz doküman yok";
                 } else {
-                    statusText += "Toplam: " + docCount + " doküman";
+                    statusText = "📋 " + addedCount + " doküman yüklendi";
                 }
                 statusLabel.setText(statusText);
-                System.out.println("DEBUG: Toplam " + docCount + " doküman eklendi.");
+
+                System.out.println("SUCCESS: File list updated - " + addedCount + " files added");
+                System.out.println("=== ENHANCED FILE LIST RESPONSE END ===");
 
             } catch (Exception e) {
-                System.err.println("ERROR: FILE_LIST_RESP parse hatası: " + e.getMessage());
+                System.err.println("ERROR: File list response processing failed: " + e.getMessage());
                 e.printStackTrace();
-                showError("Doküman listesi alınırken hata oluştu: " + e.getMessage());
+                statusLabel.setText("❌ Liste güncelleme hatası: " + e.getMessage());
+                showError("Doküman listesi güncelleme hatası: " + e.getMessage());
             }
         });
     }
@@ -255,7 +287,7 @@ public class MainWindow extends JFrame {
         public String toString() {
             // Dosya adını ve aktif kullanıcı sayısını göster
             if (userCount != null && !userCount.equals("0")) {
-                return fileName + " (" + userCount + " kullanıcı)";
+                return fileName;
             }
             return fileName;
         }
@@ -284,31 +316,65 @@ public class MainWindow extends JFrame {
         });
     }
 
+    /**
+     * 🔧 UPDATED: File created handler with automatic list refresh
+     */
     private void handleFileCreated(Message message) {
         SwingUtilities.invokeLater(() -> {
             String filename = message.getData("filename");
-            String fileId = message.getFileId(); // fileId'yi de alın
+            String fileId = message.getFileId();
+
+            System.out.println("=== FILE CREATED HANDLER DEBUG ===");
+            System.out.println("DEBUG: Received filename: " + filename);
+            System.out.println("DEBUG: Received fileId: " + fileId);
 
             if (filename != null && fileId != null) {
-                // FileDisplayItem oluştur
-                FileDisplayItem newItem = new FileDisplayItem(fileId, filename, filename);
+                // 🔧 IMMEDIATE: Add to list right away (optimistic update)
+                FileDisplayItem newItem = new FileDisplayItem(fileId, filename, "0");
 
-                // Zaten var mı kontrol et
+                // Check if already exists in list
                 boolean alreadyExists = false;
                 for (int i = 0; i < listModel.size(); i++) {
                     FileDisplayItem existing = listModel.getElementAt(i);
                     if (existing.getFileId().equals(fileId)) {
                         alreadyExists = true;
+                        System.out.println("DEBUG: File already exists in list, skipping add");
                         break;
                     }
                 }
 
                 if (!alreadyExists) {
-                    listModel.addElement(newItem); // FileDisplayItem ekle
-                    statusLabel.setText("Yeni doküman oluşturuldu: " + filename);
-                    System.out.println("DEBUG: Yeni dosya listeye eklendi: " + filename + " (ID: " + fileId + ")");
+                    // Add to beginning of list (most recent first)
+                    listModel.add(0, newItem);
+
+                    // Select the newly created file
+                    documentList.setSelectedIndex(0);
+
+                    System.out.println("SUCCESS: New file added to list: " + filename + " (ID: " + fileId + ")");
+                    statusLabel.setText("✅ Yeni doküman oluşturuldu: " + filename);
+
+                    // Update UI
+                    documentList.revalidate();
+                    documentList.repaint();
                 }
+
+                // 🔧 ADDITIONAL: Request fresh list from server (for accuracy)
+                javax.swing.Timer refreshTimer = new javax.swing.Timer(500, e -> {
+                    System.out.println("DEBUG: Requesting fresh file list after creation");
+                    networkManager.forceFileListRefresh();
+                });
+                refreshTimer.setRepeats(false);
+                refreshTimer.start();
+
+            } else {
+                System.err.println("ERROR: Invalid file creation response - filename or fileId is null");
+                statusLabel.setText("❌ Dosya oluşturma hatası: Geçersiz yanıt");
+
+                // Still refresh the list in case of partial success
+                requestDocumentList();
             }
+
+            System.out.println("=== FILE CREATED HANDLER END ===");
         });
     }
 
@@ -791,8 +857,33 @@ public class MainWindow extends JFrame {
     }
 
     private void requestDocumentList() {
-        System.out.println("Doküman listesi isteniyor..."); // Debug için log
-        networkManager.requestFileList();
+        try {
+            System.out.println("=== REQUESTING DOCUMENT LIST ===");
+            System.out.println("DEBUG: Current list size before request: " + listModel.size());
+
+            // Show loading status
+            statusLabel.setText("📋 Doküman listesi yenileniyor...");
+
+            // Send request through NetworkManager
+            networkManager.requestFileList();
+
+            System.out.println("DEBUG: File list request sent successfully through NetworkManager");
+
+            // Set timeout for request
+            javax.swing.Timer timeoutTimer = new javax.swing.Timer(10000, e -> {
+                if (statusLabel.getText().contains("yenileniyor")) {
+                    statusLabel.setText("⚠️ Liste yenileme zaman aşımı");
+                    System.out.println("WARNING: File list request timeout");
+                }
+            });
+            timeoutTimer.setRepeats(false);
+            timeoutTimer.start();
+
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to request document list: " + e.getMessage());
+            e.printStackTrace();
+            statusLabel.setText("❌ Liste yenileme hatası: " + e.getMessage());
+        }
     }
 
     private void createMenuBar() {
@@ -852,12 +943,22 @@ public class MainWindow extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Doküman listesi başlığı
+        // Title panel with refresh button
+        JPanel titlePanel = new JPanel(new BorderLayout());
         JLabel titleLabel = new JLabel("Dokümanlar");
         titleLabel.setFont(new Font("Arial", Font.BOLD, 14));
-        panel.add(titleLabel, BorderLayout.NORTH);
 
-        // Doküman listesi - FileDisplayItem tipinde
+        // 🔧 NEW: Add refresh button
+        JButton refreshButton = new JButton("Listeyi Yenile");
+        refreshButton.setToolTipText("Listeyi yenile");
+        refreshButton.setPreferredSize(new Dimension(30, 25));
+        refreshButton.addActionListener(e -> handleManualRefresh());
+
+        titlePanel.add(titleLabel, BorderLayout.CENTER);
+        titlePanel.add(refreshButton, BorderLayout.EAST);
+        panel.add(titlePanel, BorderLayout.NORTH);
+
+        // Document list - FileDisplayItem type
         listModel = new DefaultListModel<>();
         documentList = new JList<>(listModel);
         documentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -873,25 +974,33 @@ public class MainWindow extends JFrame {
             }
         });
 
-        // Selection listener (tek tıklama için)
-        documentList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                // Tek tıklamada otomatik açma kaldırıldı
-                // Kullanıcı double-click yapmalı veya "Aç" butonuna basmalı
-            }
-        });
+        // 🔧 ENHANCED: Right-click context menu
+        JPopupMenu contextMenu = new JPopupMenu();
+        JMenuItem openItem = new JMenuItem("Aç");
+
+        JMenuItem refreshItem = new JMenuItem("Listeyi Yenile");
+        refreshItem.setIcon(null);  // Her ihtimale karşı simgeyi sıfırla
+
+        openItem.addActionListener(e -> openSelectedFile());
+        refreshItem.addActionListener(e -> handleManualRefresh());
+
+        contextMenu.add(openItem);
+        contextMenu.addSeparator();
+        contextMenu.add(refreshItem);
+
+        documentList.setComponentPopupMenu(contextMenu);
 
         JScrollPane listScroller = new JScrollPane(documentList);
         listScroller.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
         panel.add(listScroller, BorderLayout.CENTER);
 
-        // Buton paneli
+        // Button panel
         JPanel buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0));
         JButton newButton = new JButton("Yeni");
         JButton openButton = new JButton("Aç");
 
         newButton.addActionListener(e -> handleNewDocument());
-        openButton.addActionListener(e -> openSelectedFile()); // openSelectedFile metodunu çağır
+        openButton.addActionListener(e -> openSelectedFile());
 
         buttonPanel.add(newButton);
         buttonPanel.add(openButton);
@@ -1318,20 +1427,92 @@ public class MainWindow extends JFrame {
     }
 
     private void handleNewDocument() {
-        String docName = JOptionPane.showInputDialog(this, "Doküman adını giriniz:");
+        String docName = JOptionPane.showInputDialog(this,
+                "Doküman adını giriniz:",
+                "Yeni Doküman",
+                JOptionPane.PLAIN_MESSAGE);
+
         if (docName != null && !docName.trim().isEmpty()) {
             docName = docName.trim();
 
-            // Dosya adı doğrulama
+            System.out.println("=== NEW DOCUMENT CREATION ===");
+            System.out.println("DEBUG: User entered document name: '" + docName + "'");
+
+            // File name validation
             if (!isValidFileName(docName)) {
+                System.out.println("ERROR: Invalid filename: " + docName);
                 return;
             }
 
-            System.out.println("Yeni doküman oluşturuluyor: " + docName);
-            networkManager.createDocument(docName);
-            statusLabel.setText("Yeni doküman oluşturuluyor: " + docName);
+            // Check for duplicate names (optional)
+            boolean nameExists = false;
+            for (int i = 0; i < listModel.size(); i++) {
+                FileDisplayItem item = listModel.getElementAt(i);
+                if (item.getFileName().equals(docName)) {
+                    nameExists = true;
+                    break;
+                }
+            }
+
+            if (nameExists) {
+                int result = JOptionPane.showConfirmDialog(this,
+                        "Aynı isimde bir dosya zaten var. Yine de oluşturmak istiyor musunuz?",
+                        "Dosya Adı Çakışması",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+
+                if (result != JOptionPane.YES_OPTION) {
+                    System.out.println("DEBUG: User cancelled due to name conflict");
+                    return;
+                }
+            }
+
+            try {
+                System.out.println("DEBUG: Sending create document request: " + docName);
+                statusLabel.setText("📄 Doküman oluşturuluyor: " + docName + "...");
+
+                // Send creation request
+                networkManager.createDocument(docName);
+
+                System.out.println("SUCCESS: Create document request sent");
+
+                // 🔧 OPTIONAL: Add loading indicator
+                javax.swing.Timer loadingTimer = new javax.swing.Timer(100, null);
+                loadingTimer.addActionListener(e -> {
+                    String currentText = statusLabel.getText();
+                    if (currentText.contains("...")) {
+                        statusLabel.setText(currentText.replace("...", "."));
+                    } else if (currentText.contains("..")) {
+                        statusLabel.setText(currentText.replace("..", "..."));
+                    } else if (currentText.contains(".")) {
+                        statusLabel.setText(currentText.replace(".", ".."));
+                    }
+                });
+                loadingTimer.start();
+
+                // Stop loading after 5 seconds
+                javax.swing.Timer stopTimer = new javax.swing.Timer(5000, e -> {
+                    loadingTimer.stop();
+                    if (statusLabel.getText().contains("oluşturuluyor")) {
+                        statusLabel.setText("⏳ Doküman oluşturma işlemi devam ediyor...");
+                    }
+                });
+                stopTimer.setRepeats(false);
+                stopTimer.start();
+
+            } catch (Exception e) {
+                System.err.println("ERROR: Failed to send create document request: " + e.getMessage());
+                e.printStackTrace();
+                statusLabel.setText("❌ Doküman oluşturma hatası: " + e.getMessage());
+                showError("Doküman oluşturma hatası: " + e.getMessage());
+            }
+
+            System.out.println("=== NEW DOCUMENT CREATION END ===");
+        } else {
+            System.out.println("DEBUG: User cancelled or entered empty name");
         }
     }
+
 
     private boolean isValidFileName(String fileName) {
         // Null kontrolü
@@ -1383,11 +1564,6 @@ public class MainWindow extends JFrame {
     private boolean containsTurkishCharacters(String text) {
         return text.matches(".*[çÇğĞıİöÖşŞüÜ].*");
     }
-
-
-
-
-
 
     // 🔧 MEVCUT: Insert operation (değişiklik yok ama newline debug ekle)
     private void handleInsertOperation(String fileId, String currentContent) {
