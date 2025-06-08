@@ -126,6 +126,9 @@ public class MainWindow extends JFrame {
                     case TEXT_UPDATE:
                         handleFileUpdated(message);
                         break;
+                    case FILE_DELETE_ACK:  // 🔧 NEW: Handle delete response
+                        handleFileDeleteAck(message);
+                        break;
                     case ERROR:
                         String errorMsg = message.getData("message");
                         // Karakter kodlama düzeltmesi
@@ -779,6 +782,187 @@ public class MainWindow extends JFrame {
         }
     }
 
+    // MainWindow.java'ya eklenecek metotlar:
+
+    /**
+     * 🔧 NEW: Handle document deletion with confirmation
+     */
+    private void handleDeleteDocument() {
+        FileDisplayItem selected = documentList.getSelectedValue();
+
+        if (selected == null) {
+            showError("Lütfen silinecek bir dosya seçin!");
+            return;
+        }
+
+        String fileId = selected.getFileId();
+        String fileName = selected.getFileName();
+
+        System.out.println("=== DELETE DOCUMENT HANDLER DEBUG ===");
+        System.out.println("DEBUG: Selected file - ID: " + fileId + ", Name: " + fileName);
+
+        // 🔧 CONFIRMATION DIALOG
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                "\"" + fileName + "\" dosyasını silmek istediğinizden emin misiniz?\n\n" +
+                        "Bu işlem geri alınamaz!",
+                "Dosya Silme Onayı",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+
+        if (result != JOptionPane.YES_OPTION) {
+            System.out.println("DEBUG: User cancelled deletion");
+            return;
+        }
+
+        try {
+            // Show loading status
+            statusLabel.setText("🗑️ Dosya siliniyor: " + fileName + "...");
+
+            // Check network connection
+            if (!networkManager.isConnected()) {
+                showError("Sunucu bağlantısı yok! Silme işlemi yapılamaz.");
+                statusLabel.setText("❌ Bağlantı hatası");
+                return;
+            }
+
+            System.out.println("DEBUG: Sending delete request for: " + fileId);
+
+            // Send delete request
+            networkManager.deleteDocument(fileId);
+
+            System.out.println("SUCCESS: Delete request sent successfully");
+
+            // 🔧 OPTIMISTIC UPDATE: Remove from list immediately
+            // (Will be corrected by server response if fails)
+            for (int i = 0; i < listModel.size(); i++) {
+                FileDisplayItem item = listModel.getElementAt(i);
+                if (item.getFileId().equals(fileId)) {
+                    listModel.remove(i);
+                    System.out.println("DEBUG: Optimistically removed from UI list");
+                    break;
+                }
+            }
+
+            // 🔧 LOADING ANIMATION
+            javax.swing.Timer loadingTimer = new javax.swing.Timer(200, null);
+            loadingTimer.addActionListener(e -> {
+                String currentText = statusLabel.getText();
+                if (currentText.contains("...")) {
+                    statusLabel.setText(currentText.replace("...", "."));
+                } else if (currentText.contains("..")) {
+                    statusLabel.setText(currentText.replace("..", "..."));
+                } else if (currentText.contains(".")) {
+                    statusLabel.setText(currentText.replace(".", ".."));
+                }
+            });
+            loadingTimer.start();
+
+            // Stop loading after 10 seconds
+            javax.swing.Timer stopTimer = new javax.swing.Timer(10000, e -> {
+                loadingTimer.stop();
+                if (statusLabel.getText().contains("siliniyor")) {
+                    statusLabel.setText("⏳ Silme işlemi devam ediyor...");
+                }
+            });
+            stopTimer.setRepeats(false);
+            stopTimer.start();
+
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to initiate delete: " + e.getMessage());
+            e.printStackTrace();
+            statusLabel.setText("❌ Silme hatası: " + e.getMessage());
+            showError("Dosya silme hatası: " + e.getMessage());
+
+            // 🔧 ROLLBACK: Add file back to list if optimistic update was done
+            // This is a simple rollback - in production you might want more sophisticated handling
+            scheduleFileListRefresh();
+        }
+
+        System.out.println("=== DELETE DOCUMENT HANDLER END ===");
+    }
+
+    /**
+     * 🔧 NEW: Handle FILE_DELETE_ACK response from server
+     */
+    private void handleFileDeleteAck(Message message) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                System.out.println("=== FILE DELETE ACK HANDLER ===");
+
+                String status = message.getData("status");
+                String responseMessage = message.getData("message");
+                String fileId = message.getFileId();
+                boolean success = "success".equals(status);
+
+                System.out.println("DEBUG: Delete result - fileId: " + fileId +
+                        ", success: " + success + ", message: '" + responseMessage + "'");
+
+                if (success) {
+                    // 🔧 SUCCESS: Update UI and show success message
+                    statusLabel.setText("✅ Dosya başarıyla silindi");
+
+                    // Ensure file is removed from list (in case optimistic update failed)
+                    for (int i = 0; i < listModel.size(); i++) {
+                        FileDisplayItem item = listModel.getElementAt(i);
+                        if (item.getFileId().equals(fileId)) {
+                            listModel.remove(i);
+                            System.out.println("DEBUG: Confirmed removal from UI list");
+                            break;
+                        }
+                    }
+
+                    // Update UI
+                    documentList.revalidate();
+                    documentList.repaint();
+
+                    // Show success notification
+                    JOptionPane.showMessageDialog(this,
+                            "Dosya başarıyla silindi!",
+                            "Silme Başarılı",
+                            JOptionPane.INFORMATION_MESSAGE);
+
+                    // Refresh file list to ensure consistency
+                    scheduleFileListRefresh();
+
+                } else {
+                    // 🔧 FAILURE: Show error and restore file to list if needed
+                    String errorMsg = responseMessage != null ? responseMessage : "Bilinmeyen hata";
+                    statusLabel.setText("❌ Silme hatası: " + errorMsg);
+
+                    System.err.println("ERROR: Delete operation failed: " + errorMsg);
+
+                    // Show error dialog
+                    showError("Dosya silinemedi: " + errorMsg);
+
+                    // Restore file list (in case optimistic update removed it)
+                    scheduleFileListRefresh();
+                }
+
+            } catch (Exception e) {
+                System.err.println("ERROR: handleFileDeleteAck exception: " + e.getMessage());
+                e.printStackTrace();
+                statusLabel.setText("❌ Silme yanıtı işleme hatası");
+                showError("Silme yanıtı işlenirken hata oluştu: " + e.getMessage());
+            }
+
+            System.out.println("=== FILE DELETE ACK HANDLER END ===");
+        });
+    }
+
+    /**
+     * 🔧 NEW: Helper method to refresh file list (if not already exists)
+     */
+    private void scheduleFileListRefresh() {
+        javax.swing.Timer refreshTimer = new javax.swing.Timer(500, e -> {
+            System.out.println("DEBUG: Scheduled file list refresh");
+            networkManager.forceFileListRefresh();
+        });
+        refreshTimer.setRepeats(false);
+        refreshTimer.start();
+    }
+
     /**
      * 🔧 Enhanced DocumentListener with better thread safety
      */
@@ -830,8 +1014,6 @@ public class MainWindow extends JFrame {
 
         System.out.println("DEBUG: Enhanced DocumentListener setup completed");
     }
-
-
 
     private void handleError(String errorMessage) {
         SwingUtilities.invokeLater(() -> {
@@ -939,6 +1121,8 @@ public class MainWindow extends JFrame {
         menu.add(item);
     }
 
+    // MainWindow.java'da createLeftPanel metodunda değişiklik yapılacak:
+
     private JPanel createLeftPanel() {
         JPanel panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -974,17 +1158,19 @@ public class MainWindow extends JFrame {
             }
         });
 
-        // 🔧 ENHANCED: Right-click context menu
+        // 🔧 ENHANCED: Right-click context menu WITH DELETE
         JPopupMenu contextMenu = new JPopupMenu();
         JMenuItem openItem = new JMenuItem("Aç");
-
+        JMenuItem deleteItem = new JMenuItem("Sil");  // 🔧 NEW: Delete menu item
         JMenuItem refreshItem = new JMenuItem("Listeyi Yenile");
-        refreshItem.setIcon(null);  // Her ihtimale karşı simgeyi sıfırla
 
         openItem.addActionListener(e -> openSelectedFile());
+        deleteItem.addActionListener(e -> handleDeleteDocument());  // 🔧 NEW: Delete handler
         refreshItem.addActionListener(e -> handleManualRefresh());
 
         contextMenu.add(openItem);
+        contextMenu.addSeparator();
+        contextMenu.add(deleteItem);  // 🔧 NEW: Add delete option
         contextMenu.addSeparator();
         contextMenu.add(refreshItem);
 
@@ -994,16 +1180,19 @@ public class MainWindow extends JFrame {
         listScroller.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY));
         panel.add(listScroller, BorderLayout.CENTER);
 
-        // Button panel
-        JPanel buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0));
+        // 🔧 ENHANCED: Button panel with delete button
+        JPanel buttonPanel = new JPanel(new GridLayout(1, 3, 5, 0));  // 🔧 Changed to 3 columns
         JButton newButton = new JButton("Yeni");
         JButton openButton = new JButton("Aç");
+        JButton deleteButton = new JButton("Sil");  // 🔧 NEW: Delete button
 
         newButton.addActionListener(e -> handleNewDocument());
         openButton.addActionListener(e -> openSelectedFile());
+        deleteButton.addActionListener(e -> handleDeleteDocument());  // 🔧 NEW: Delete handler
 
         buttonPanel.add(newButton);
         buttonPanel.add(openButton);
+        buttonPanel.add(deleteButton);  // 🔧 NEW: Add delete button
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         return panel;
@@ -1513,7 +1702,6 @@ public class MainWindow extends JFrame {
         }
     }
 
-
     private boolean isValidFileName(String fileName) {
         // Null kontrolü
         if (fileName == null) {
@@ -1565,53 +1753,6 @@ public class MainWindow extends JFrame {
         return text.matches(".*[çÇğĞıİöÖşŞüÜ].*");
     }
 
-    // 🔧 MEVCUT: Insert operation (değişiklik yok ama newline debug ekle)
-    private void handleInsertOperation(String fileId, String currentContent) {
-        try {
-            int insertPosition = findInsertPosition(lastContent, currentContent);
-            int insertLength = currentContent.length() - lastContent.length();
-            String insertedText = currentContent.substring(insertPosition, insertPosition + insertLength);
-
-            System.out.println("DEBUG: INSERT detected");
-            System.out.println("DEBUG: Insert position: " + insertPosition);
-            System.out.println("DEBUG: Inserted text: '" + insertedText.replace("\n", "\\n") + "'");
-
-            // Türkçe karakter kontrolü (newline hariç)
-            if (containsTurkishCharacters(insertedText)) {
-                handleTurkishCharacterError(insertPosition, insertedText.length());
-                return;
-            }
-
-            // Her karakteri ayrı ayrı gönder
-            for (int i = 0; i < insertedText.length(); i++) {
-                char c = insertedText.charAt(i);
-                String singleChar = String.valueOf(c);
-                int charPosition = insertPosition + i;
-
-                System.out.println("DEBUG: Sending character '" +
-                        (c == '\n' ? "NEWLINE" : c == ' ' ? "SPACE" : String.valueOf(c)) +
-                        "' at position " + charPosition);
-
-                networkManager.insertText(fileId, charPosition, singleChar);
-
-                // Newline için ekstra delay
-                if (c == '\n') {
-                    try { Thread.sleep(50); } catch (InterruptedException e) {}
-                } else if (insertedText.length() > 3) {
-                    try { Thread.sleep(10); } catch (InterruptedException e) {}
-                }
-            }
-
-            lastContent = currentContent;
-            System.out.println("DEBUG: INSERT completed - lastContent updated");
-
-        } catch (Exception e) {
-            System.err.println("ERROR: handleInsertOperation failed: " + e.getMessage());
-            e.printStackTrace();
-            lastContent = currentContent; // Reset to prevent infinite issues
-        }
-    }
-
     private int findInsertPosition(String oldText, String newText) {
         if (oldText.isEmpty()) {
             System.out.println("DEBUG: findInsertPosition - oldText empty, returning 0");
@@ -1660,67 +1801,6 @@ public class MainWindow extends JFrame {
                 ExceptionHandler.handle(e, "Metin düzeltme sırasında hata oluştu");
             }
         });
-    }
-    private void setupTextEditor() {
-
-        editorPane.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                // EDT kontrolü ve handleTextChange çağrısı
-                if (SwingUtilities.isEventDispatchThread()) {
-                    handleTextChange();
-                } else {
-                    SwingUtilities.invokeLater(() -> handleTextChange());
-                }
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                if (SwingUtilities.isEventDispatchThread()) {
-                    handleTextChange();
-                } else {
-                    SwingUtilities.invokeLater(() -> handleTextChange());
-                }
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                // Style changes - genellikle boş
-                // Space karakteri için gerekli değil
-            }
-        });
-
-        // 🔧 Space tuşu için özel KeyListener ekle (DEBUG amaçlı)
-        editorPane.addKeyListener(new KeyListener() {
-            @Override
-            public void keyTyped(KeyEvent e) {
-                char c = e.getKeyChar();
-                if (c == ' ') {
-                    System.out.println("DEBUG: Space key typed - char: '" + c + "' (ASCII: " + (int)c + ")");
-                }
-
-                // Özel karakterleri logla
-                if (Character.isISOControl(c) && c != '\b' && c != '\t' && c != '\n') {
-                    System.out.println("DEBUG: Control character typed: " + (int)c);
-                }
-            }
-
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
-                    System.out.println("DEBUG: Space key pressed - keyCode: " + e.getKeyCode());
-                }
-            }
-
-            @Override
-            public void keyReleased(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_SPACE) {
-                    System.out.println("DEBUG: Space key released - keyCode: " + e.getKeyCode());
-                }
-            }
-        });
-
-        System.out.println("DEBUG: Text editor setup completed with space character debugging");
     }
 
     private JPanel createChatPanel() {

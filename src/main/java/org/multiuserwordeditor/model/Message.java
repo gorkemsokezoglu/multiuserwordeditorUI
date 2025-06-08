@@ -21,7 +21,8 @@ public class Message {
         FILE_CREATE, // İstemci -> Sunucu: Yeni dosya oluşturma
         FILE_OPEN, // İstemci -> Sunucu: Dosya açma isteği
         FILE_CONTENT, // İstemci <-> Sunucu: Dosya içeriği
-
+        FILE_DELETE,
+        FILE_DELETE_ACK,
         // 3. Metin Düzenleme İşlemleri
         TEXT_INSERT, // İstemci <-> Sunucu: Metin ekleme
         TEXT_DELETE, // İstemci <-> Sunucu: Metin silme
@@ -76,6 +77,21 @@ public class Message {
         return data.keySet();
     }
 
+    public static Message createFileDelete(String userId, String fileId) {
+        return new Message(MessageType.FILE_DELETE, userId, fileId)
+                .addData("action", "delete")
+                .addData("timestamp", String.valueOf(System.currentTimeMillis()));
+    }
+
+    /**
+     * 🔧 NEW: FILE_DELETE_ACK mesajı oluştur
+     */
+    public static Message createFileDeleteAck(String userId, String fileId, boolean success, String message) {
+        return new Message(MessageType.FILE_DELETE_ACK, userId, fileId)
+                .addData("status", success ? "success" : "fail")
+                .addData("message", message)
+                .addData("timestamp", String.valueOf(System.currentTimeMillis()));
+    }
     /**
      * Raw data Map'ini döndürür - debug için
      */

@@ -5,6 +5,8 @@ import org.multiuserwordeditor.model.Message;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -87,6 +89,91 @@ public class NetworkManager {
             handleError("Sunucuya bağlanılamadı", e);
         }
     }
+
+
+    public void deleteDocument(String fileId) {
+        try {
+            System.out.println("=== NETWORK MANAGER DELETE DOCUMENT ===");
+            System.out.println("DEBUG: Deleting document with fileId: '" + fileId + "'");
+
+            if (fileId == null || fileId.trim().isEmpty()) {
+                System.err.println("ERROR: FileId is null or empty");
+                throw new IllegalArgumentException("Dosya ID boş olamaz");
+            }
+
+            if (!isConnected()) {
+                System.err.println("ERROR: Not connected to server");
+                throw new IllegalStateException("Sunucuya bağlı değil");
+            }
+
+            if (userId == null || userId.trim().isEmpty()) {
+                System.err.println("ERROR: UserId is null or empty");
+                throw new IllegalStateException("Kullanıcı girişi yapılmamış");
+            }
+
+            // Clean fileId
+            String cleanFileId = fileId.trim();
+
+            // Client side fileId format fix (if needed)
+            if (cleanFileId.contains(":")) {
+                String[] parts = cleanFileId.split(":");
+                if (parts.length >= 1) {
+                    cleanFileId = parts[0].trim();
+                    System.out.println("DEBUG: Client-side fileId fix: '" + fileId + "' → '" + cleanFileId + "'");
+                }
+            }
+
+            // Create and send delete message
+            Message deleteMsg = Message.createFileDelete(userId, cleanFileId);
+            String rawMessage = deleteMsg.serialize();
+
+            System.out.println("DEBUG: Delete request - UserId: " + userId + ", FileId: " + cleanFileId);
+            System.out.println("DEBUG: Raw delete message: " + rawMessage);
+
+            // Send as UTF-8
+            writer.println(rawMessage);
+            writer.flush();
+
+            // 🔧 ENHANCED: Auto-refresh file list after deletion with delay
+            scheduleFileListRefresh();
+
+            LOGGER.info("Document deletion request sent - UserId: " + userId + ", FileId: " + cleanFileId);
+            System.out.println("SUCCESS: FILE_DELETE message sent successfully");
+            System.out.println("=== NETWORK MANAGER DELETE DOCUMENT END ===");
+
+        } catch (IllegalArgumentException e) {
+            System.err.println("ERROR: Invalid fileId: " + e.getMessage());
+            handleError("Geçersiz dosya ID", e);
+            throw e;
+        } catch (IllegalStateException e) {
+            System.err.println("ERROR: Invalid state: " + e.getMessage());
+            handleError("Bağlantı sorunu", e);
+            throw e;
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to delete document '" + fileId + "': " + e.getMessage());
+            e.printStackTrace();
+            handleError("Doküman silinirken hata oluştu", e);
+            LOGGER.severe("Document deletion error: " + e.getMessage());
+            throw new RuntimeException("Document deletion failed", e);
+        }
+    }
+
+    /**
+     * 🔧 NEW: Check if user can delete document (optional validation)
+     */
+    public boolean canDeleteDocument(String fileId) {
+        // Basic client-side validation
+        if (fileId == null || fileId.trim().isEmpty()) {
+            return false;
+        }
+
+        if (!isConnected() || userId == null) {
+            return false;
+        }
+
+        return true;
+    }
+
     private boolean isCompleteMessage(String message) {
         if (message == null || message.trim().isEmpty()) {
             return false;
@@ -441,6 +528,12 @@ public class NetworkManager {
                 handleFileListResponseRaw(rawMessage);
                 return; // Normal deserialize'a gitme
             }
+            if (rawMessage.startsWith("FILE_DELETE_ACK|")) {
+                System.out.println("DEBUG: FILE_DELETE_ACK özel işleme başlıyor...");
+                handleFileDeleteAckRaw(rawMessage);
+                return; // Normal deserialize'a gitme
+            }
+
 
             // ========== DİĞER MESAJLAR NORMAL İŞLEME ==========
             Message message = Message.deserialize(rawMessage);
@@ -454,7 +547,63 @@ public class NetworkManager {
             e.printStackTrace();
         }
     }
+    private void handleFileDeleteAckRaw(String rawMessage) {
+        try {
+            System.out.println("=== FILE DELETE ACK HANDLER DEBUG ===");
+            System.out.println("DEBUG: Raw FILE_DELETE_ACK message: '" + rawMessage + "'");
 
+            // Format: FILE_DELETE_ACK|userId|fileId|status:success,message:Dosya silindi|timestamp
+            String[] parts = rawMessage.split("\\|");
+
+            if (parts.length < 4) {
+                System.err.println("ERROR: Geçersiz FILE_DELETE_ACK formatı - parts: " + parts.length);
+                return;
+            }
+
+            String userId = "null".equals(parts[1]) ? null : parts[1];
+            String fileId = "null".equals(parts[2]) ? null : parts[2];
+            String dataSection = parts[3];
+            long timestamp = parts.length > 4 ? Long.parseLong(parts[4]) : System.currentTimeMillis();
+
+            System.out.println("DEBUG: Parsed - userId: " + userId + ", fileId: " + fileId);
+            System.out.println("DEBUG: Data section: '" + dataSection + "'");
+
+            // Parse data section
+            Map<String, String> dataMap = new HashMap<>();
+            if (!"empty".equals(dataSection)) {
+                String[] dataPairs = dataSection.split(",");
+                for (String pair : dataPairs) {
+                    String[] keyValue = pair.split(":", 2);
+                    if (keyValue.length == 2) {
+                        dataMap.put(keyValue[0].trim(), keyValue[1].trim());
+                    }
+                }
+            }
+
+            String status = dataMap.get("status");
+            String message = dataMap.get("message");
+            boolean success = "success".equals(status);
+
+            System.out.println("DEBUG: Delete result - success: " + success + ", message: '" + message + "'");
+
+            // Manuel message oluştur
+            Message deleteAckMessage = new Message(Message.MessageType.FILE_DELETE_ACK, userId, fileId);
+            deleteAckMessage.addData("status", status != null ? status : "fail");
+            deleteAckMessage.addData("message", message != null ? message : "Bilinmeyen hata");
+
+            // Normal handler'a gönder
+            if (messageHandler != null) {
+                messageHandler.accept(deleteAckMessage);
+            }
+
+            System.out.println("SUCCESS: FILE_DELETE_ACK message processed successfully");
+            System.out.println("=== FILE DELETE ACK HANDLER END ===");
+
+        } catch (Exception e) {
+            System.err.println("ERROR: FILE_DELETE_ACK raw parse hatası: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
     /**
      * FILE_LIST_RESP mesajlarını özel olarak işler
      */
