@@ -180,14 +180,22 @@ public class NetworkManager {
             Message createMsg = Message.createFileCreate(userId, cleanFilename);
             String rawMessage = createMsg.serialize();
 
+            // Debug log ekle
+            LOGGER.info("Doküman oluşturma isteği gönderiliyor - UserId: " + userId + ", Filename: " + cleanFilename);
+            System.out.println("DEBUG: Doküman oluşturma isteği - Raw mesaj: " + rawMessage);
+
             // UTF-8 olarak gönder
-            LOGGER.info("Doküman oluşturma isteği gönderiliyor: " + rawMessage);
             writer.println(rawMessage);
             writer.flush();
+
+            // Doküman listesini hemen güncelle
+            requestFileList();
         } catch (IllegalArgumentException e) {
             handleError("Geçersiz dosya adı", e);
         } catch (Exception e) {
             handleError("Doküman oluşturulurken hata oluştu", e);
+            LOGGER.severe("Doküman oluşturma hatası: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -211,18 +219,14 @@ public class NetworkManager {
         }
     }
 
-    public void updateDocument(Document doc, int position, String text, boolean isDelete) {
+    public void insertText(String fileId, int position, String text) {
         try {
-            Message updateMsg;
-            if (isDelete) {
-                updateMsg = Message.createTextDelete(userId, doc.getId(), position, text.length());
-            } else {
-                updateMsg = Message.createTextUpdate(userId, doc.getId(), position, text);
-            }
-            writer.println(updateMsg.serialize());
+            Message insertMsg = Message.createTextInsert(userId, fileId, position, text);
+            LOGGER.info("Metin ekleme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position);
+            writer.println(insertMsg.serialize());
             writer.flush();
         } catch (Exception e) {
-            handleError("Doküman güncellenirken hata", e);
+            handleError("Metin eklenirken hata", e);
         }
     }
 
@@ -236,8 +240,6 @@ public class NetworkManager {
         }
     }
 
-
-
     private void handleServerMessage(String rawMessage) {
         try {
             System.out.println("=== RAW MESSAGE DEBUG ===");
@@ -248,7 +250,7 @@ public class NetworkManager {
                 System.out.println("DEBUG: FILE_LIST_RESP özel işleme başlıyor...");
 
                 handleFileListResponseRaw(rawMessage);
-                return;  // Normal deserialize'a gitme
+                return; // Normal deserialize'a gitme
             }
 
             // ========== DİĞER MESAJLAR NORMAL İŞLEME ==========
@@ -269,7 +271,8 @@ public class NetworkManager {
      */
     private void handleFileListResponseRaw(String rawMessage) {
         try {
-            // Format: FILE_LIST_RESP|userId|fileId|files:file1:file1.txt:0|file2:file2.txt:0|...|timestamp
+            // Format:
+            // FILE_LIST_RESP|userId|fileId|files:file1:file1.txt:0|file2:file2.txt:0|...|timestamp
             String[] parts = rawMessage.split("\\|");
 
             if (parts.length < 4) {
@@ -279,7 +282,7 @@ public class NetworkManager {
 
             String userId = "null".equals(parts[1]) ? null : parts[1];
             String fileId = "null".equals(parts[2]) ? null : parts[2];
-            long timestamp = Long.parseLong(parts[parts.length - 1]);  // Son part timestamp
+            long timestamp = Long.parseLong(parts[parts.length - 1]); // Son part timestamp
 
             // Files data'yı birleştir (Part[3]'ten Part[length-2]'ye kadar)
             StringBuilder filesDataBuilder = new StringBuilder();
@@ -290,7 +293,7 @@ public class NetworkManager {
             }
 
             // Diğer dosya part'larını ekle
-            for (int i = 4; i < parts.length - 1; i++) {  // Son part timestamp olduğu için -1
+            for (int i = 4; i < parts.length - 1; i++) { // Son part timestamp olduğu için -1
                 filesDataBuilder.append("|").append(parts[i]);
             }
 
@@ -360,27 +363,19 @@ public class NetworkManager {
         this.userId = userId;
     }
 
-    public void sendTextUpdate(String fileId, int position, String text, String operation) {
-        try {
-            Message message;
-            switch (operation.toUpperCase()) {
-                case "INSERT":
-                    message = Message.createTextInsert(userId, fileId, position, text);
-                    break;
-                case "DELETE":
-                    message = Message.createTextDelete(userId, fileId, position, text.length());
-                    break;
-                default:
-                    message = Message.createTextUpdate(userId, fileId, position, text);
-                    break;
-            }
+    public void updateDocument(String fileId, String content) {
+        insertText(fileId, 0, content);
+    }
 
-            String rawMessage = message.serialize();
-            System.out.println("Gönderilen metin güncellemesi: " + rawMessage);
-            writer.println(rawMessage);
+    public void deleteText(String fileId, int position, int length) {
+        try {
+            Message deleteMsg = Message.createTextDelete(userId, fileId, position, length);
+            LOGGER.info("Metin silme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position + ", Length: "
+                    + length);
+            writer.println(deleteMsg.serialize());
             writer.flush();
         } catch (Exception e) {
-            handleError("Metin güncellemesi gönderilirken hata", e);
+            handleError("Metin silinirken hata", e);
         }
     }
 }

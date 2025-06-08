@@ -20,7 +20,7 @@ public class Message {
         FILE_LIST_RESP, // Sunucu -> İstemci: Dosya listesi yanıtı
         FILE_CREATE, // İstemci -> Sunucu: Yeni dosya oluşturma
         FILE_OPEN, // İstemci -> Sunucu: Dosya açma isteği
-        FILE_CONTENT, // Sunucu -> İstemci: Dosya içeriği
+        FILE_CONTENT, // İstemci <-> Sunucu: Dosya içeriği
 
         // 3. Metin Düzenleme İşlemleri
         TEXT_INSERT, // İstemci <-> Sunucu: Metin ekleme
@@ -35,7 +35,8 @@ public class Message {
 
         // 5. Diğer İşlemler
         SAVE, // İstemci -> Sunucu: Kaydetme isteği
-        ERROR // Sunucu -> İstemci: Hata bildirimi
+        ERROR, // Sunucu -> İstemci: Hata bildirimi
+        FILE_UPDATE // İstemci <-> Sunucu: Dosya güncelleme
     }
 
     // Mesaj alanları
@@ -171,8 +172,10 @@ public class Message {
     }
 
     public static Message createFileCreate(String userId, String fileName) {
-        return new Message(MessageType.FILE_CREATE, userId, null)
-                .addData("name", fileName);
+        Message message = new Message(MessageType.FILE_CREATE, userId, null);
+        message.addData("name", fileName);
+        message.addData("creator", userId);
+        return message;
     }
 
     public static Message createFileOpen(String userId, String fileId) {
@@ -186,21 +189,25 @@ public class Message {
 
     // Factory metotları - Metin Düzenleme İşlemleri
     public static Message createTextInsert(String userId, String fileId, int position, String text) {
-        return new Message(MessageType.TEXT_INSERT, userId, fileId)
-                .addData("position", position)
-                .addData("text", text);
+        Message message = new Message(MessageType.TEXT_INSERT, userId, fileId);
+        message.addData("position", String.valueOf(position));
+        message.addData("text", text);
+        return message;
     }
 
     public static Message createTextDelete(String userId, String fileId, int position, int length) {
-        return new Message(MessageType.TEXT_DELETE, userId, fileId)
-                .addData("position", position)
-                .addData("length", length);
+        Message message = new Message(MessageType.TEXT_DELETE, userId, fileId);
+        message.addData("position", String.valueOf(position));
+        message.addData("length", String.valueOf(length));
+        return message;
     }
 
-    public static Message createTextUpdate(String userId, String fileId, int position, String text) {
-        return new Message(MessageType.TEXT_UPDATE, userId, fileId)
-                .addData("position", position)
-                .addData("text", text);
+    public static Message createTextUpdate(String userId, String fileId, String operation, int position, String text) {
+        Message message = new Message(MessageType.TEXT_UPDATE, userId, fileId);
+        message.addData("operation", operation);
+        message.addData("position", String.valueOf(position));
+        message.addData("text", text);
+        return message;
     }
 
     // Factory metotları - Kullanıcı Yönetimi
