@@ -41,7 +41,7 @@ public class LoginWindow extends JFrame {
         connectionPanel.setBorder(BorderFactory.createTitledBorder("Sunucu Bilgileri"));
 
         hostField = new JTextField("localhost", 15);
-        portField = new JTextField("12345", 15);
+        portField = new JTextField("8080", 15);
         usernameField = new JTextField(15);
         passwordField = new JPasswordField(15);
         registerButton = new JButton("Kayıt Ol");

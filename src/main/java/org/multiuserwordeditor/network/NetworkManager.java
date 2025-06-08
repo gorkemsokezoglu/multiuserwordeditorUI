@@ -164,29 +164,8 @@ public class NetworkManager {
     }
 
     private void sendMessage(String type, String userId, String fileId, String data) {
-        if (isConnected && writer != null) {
-            try {
-                String message = String.format("%s%s%s%s%s%s%s%s%d%s",
-                        type, DELIMITER,
-                        userId != null ? userId : "null", DELIMITER,
-                        fileId != null ? fileId : "null", DELIMITER,
-                        data, DELIMITER,
-                        System.currentTimeMillis(), MESSAGE_END);
-
-                // UTF-8 olarak gönder
-                byte[] messageBytes = message.getBytes("UTF-8");
-                String utf8Message = new String(messageBytes, "UTF-8");
-
-                writer.println(utf8Message);
-                writer.flush();
-
-                System.out.println("Gönderilen mesaj: " + utf8Message);
-            } catch (Exception e) {
-                handleError("Mesaj gönderilirken hata oluştu", e);
-            }
-        } else if (errorHandler != null) {
-            errorHandler.accept("Sunucuya bağlı değil!");
-        }
+        // 🔧 DEPRECATED: Use sendMessageSafe instead
+        sendMessageSafe(type, userId, fileId, data);
     }
 
     public void register(String username, String password) {
@@ -280,6 +259,9 @@ public class NetworkManager {
         }
     }
 
+
+// 🔧 1. CLIENT: NetworkManager.java - Enhanced NEWLINE message creation
+
     public void insertText(String fileId, int position, String text) {
         try {
             if (text == null || text.length() == 0) {
@@ -287,38 +269,80 @@ public class NetworkManager {
                 return;
             }
 
-            // 🔧 SPECIAL CHARACTERS ENCODING
+            // 🔧 ENHANCED MESSAGE CREATION WITH PROPER ESCAPING
             String data;
             if (text.equals(" ")) {
-                // Space character
                 data = "position:" + position + ",text:__SPACE__,userId:" + this.userId;
                 System.out.println("DEBUG: Space character encoded as __SPACE__");
+
             } else if (text.equals("\n")) {
-                // 🔧 NEWLINE CHARACTER
+                // 🔧 CRITICAL FIX: Properly construct NEWLINE message
                 data = "position:" + position + ",text:__NEWLINE__,userId:" + this.userId;
-                System.out.println("DEBUG: Newline character encoded as __NEWLINE__");
+                System.out.println("DEBUG: *** NEWLINE character encoded as __NEWLINE__ ***");
+                System.out.println("DEBUG: NEWLINE message data: '" + data + "'");
+
             } else if (text.equals("\r\n")) {
-                // Windows CRLF
                 data = "position:" + position + ",text:__CRLF__,userId:" + this.userId;
                 System.out.println("DEBUG: CRLF encoded as __CRLF__");
+
             } else if (text.equals("\t")) {
-                // Tab character
                 data = "position:" + position + ",text:__TAB__,userId:" + this.userId;
                 System.out.println("DEBUG: Tab character encoded as __TAB__");
+
             } else {
                 // Normal characters
                 data = "position:" + position + ",text:" + text + ",userId:" + this.userId;
             }
 
-            System.out.println("DEBUG: insertText final data: " + data);
+            System.out.println("DEBUG: Final insertText data: '" + data + "'");
 
-            sendMessage("TEXT_INSERT", this.userId, fileId, data);
+            // 🔧 SEND WITH ENHANCED MESSAGE CREATION
+            sendMessageSafe("TEXT_INSERT", this.userId, fileId, data);
 
-            LOGGER.info("insertText: Metin ekleme isteği gönderiliyor - FileId: " + fileId + ", Position: " + position);
+            LOGGER.info("insertText: Sent - pos:" + position + " text:'" +
+                    (text.equals("\n") ? "NEWLINE" : text.equals(" ") ? "SPACE" : text) + "'");
 
         } catch (Exception e) {
             LOGGER.severe("insertText error: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+    private void sendMessageSafe(String type, String userId, String fileId, String data) {
+        if (isConnected && writer != null) {
+            try {
+                // 🔧 CONSTRUCT MESSAGE MANUALLY WITH NEWLINE PROTECTION
+                StringBuilder messageBuilder = new StringBuilder();
+                messageBuilder.append(type).append(DELIMITER);
+                messageBuilder.append(userId != null ? userId : "null").append(DELIMITER);
+                messageBuilder.append(fileId != null ? fileId : "null").append(DELIMITER);
+                messageBuilder.append(data != null ? data : "empty").append(DELIMITER);
+                messageBuilder.append(System.currentTimeMillis());
+                messageBuilder.append(MESSAGE_END); // Add final newline
+
+                String finalMessage = messageBuilder.toString();
+
+                // 🔧 DEBUG FOR NEWLINE MESSAGES
+                if (data != null && data.contains("__NEWLINE__")) {
+                    System.out.println("=== NEWLINE MESSAGE DEBUG ===");
+                    System.out.println("DEBUG: Constructed message: '" + finalMessage.replace("\n", "\\n") + "'");
+                    System.out.println("DEBUG: Message length: " + finalMessage.length());
+                    System.out.println("DEBUG: Pipe count: " + (finalMessage.length() - finalMessage.replace("|", "").length()));
+                    System.out.println("DEBUG: Ends with newline: " + finalMessage.endsWith("\n"));
+                    System.out.println("========================");
+                }
+
+                // Send the message
+                writer.print(finalMessage);
+                writer.flush();
+
+                System.out.println("DEBUG: Message sent successfully: " + type);
+
+            } catch (Exception e) {
+                LOGGER.severe("sendMessageSafe error: " + e.getMessage());
+                e.printStackTrace();
+            }
+        } else {
+            System.err.println("ERROR: Cannot send message - not connected or writer is null");
         }
     }
 

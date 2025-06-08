@@ -36,6 +36,8 @@ public class MainWindow extends JFrame {
     private Color currentTextColor;
     private String currentTheme = "light";
     private boolean isUpdatingFromServer = false;
+    private final Object textChangeLock = new Object();
+    private volatile boolean isProcessingTextChange = false;
 
     private static final int MAX_FILENAME_LENGTH = 100;
     private static final String INVALID_FILENAME_CHARS = "<>:\"|?*/\\\\";
@@ -310,64 +312,460 @@ public class MainWindow extends JFrame {
         });
     }
 
+    /**
+     * 🔧 THREAD-SAFE handleTextChange with newline awareness
+     */
+    private void handleTextChange() {
+        // Prevent concurrent text change processing
+        synchronized (textChangeLock) {
+            if (isUpdatingFromServer || isProcessingTextChange) {
+                System.out.println("DEBUG: handleTextChange SKIPPED - flags: updating=" +
+                        isUpdatingFromServer + ", processing=" + isProcessingTextChange);
+                return;
+            }
+
+            isProcessingTextChange = true;
+        }
+
+        try {
+            FileDisplayItem selected = documentList.getSelectedValue();
+            if (selected == null) {
+                System.out.println("DEBUG: No file selected, skipping text change");
+                return;
+            }
+
+            String currentContent = editorPane.getText();
+            String fileId = selected.getFileId();
+
+            System.out.println("=== THREAD-SAFE TEXT CHANGE DEBUG ===");
+            System.out.println("DEBUG: Current content length: " + currentContent.length());
+            System.out.println("DEBUG: Last content length: " + lastContent.length());
+
+            // Content equality check (important for newlines)
+            if (currentContent.equals(lastContent)) {
+                System.out.println("DEBUG: Content unchanged, skipping");
+                return;
+            }
+
+            // 🔧 ENHANCED DIFF DETECTION
+            ContentDiff diff = analyzeContentDifference(lastContent, currentContent);
+
+            if (diff != null) {
+                if (diff.isInsert) {
+                    System.out.println("DEBUG: Processing INSERT operation");
+                    processInsertOperation(fileId, diff);
+                } else {
+                    System.out.println("DEBUG: Processing DELETE operation");
+                    processDeleteOperation(fileId, diff);
+                }
+
+                // Update lastContent only after successful processing
+                lastContent = currentContent;
+                System.out.println("DEBUG: lastContent updated successfully");
+
+            } else {
+                System.err.println("ERROR: Could not analyze content difference");
+                // Fallback - sync with current content
+                lastContent = currentContent;
+            }
+
+        } catch (Exception e) {
+            System.err.println("ERROR: handleTextChange exception: " + e.getMessage());
+            e.printStackTrace();
+            // Emergency fallback
+            lastContent = editorPane.getText();
+        } finally {
+            synchronized (textChangeLock) {
+                isProcessingTextChange = false;
+            }
+            System.out.println("=== THREAD-SAFE TEXT CHANGE END ===");
+        }
+    }
+
+    /**
+     * 🔧 Advanced content difference analysis
+     */
+    private ContentDiff analyzeContentDifference(String oldContent, String newContent) {
+        try {
+            int oldLen = oldContent.length();
+            int newLen = newContent.length();
+
+            if (newLen > oldLen) {
+                // INSERT operation
+                int insertPos = findInsertPosition(oldContent, newContent);
+                int insertLen = newLen - oldLen;
+                String insertedText = newContent.substring(insertPos, insertPos + insertLen);
+
+                return new ContentDiff(true, insertPos, insertLen, insertedText);
+
+            } else if (newLen < oldLen) {
+                // DELETE operation
+                int deleteLen = oldLen - newLen;
+
+                // Find delete position using LCS (Longest Common Subsequence) approach
+                int deletePos = findDeletePosition(oldContent, newContent);
+                String deletedText = oldContent.substring(deletePos, deletePos + deleteLen);
+
+                return new ContentDiff(false, deletePos, deleteLen, deletedText);
+            }
+
+            return null; // No change
+
+        } catch (Exception e) {
+            System.err.println("ERROR: analyzeContentDifference failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 🔧 Enhanced delete position finding with newline awareness
+     */
+    private int findDeletePosition(String oldContent, String newContent) {
+        int oldLen = oldContent.length();
+        int newLen = newContent.length();
+
+        // Find common prefix
+        int commonPrefix = 0;
+        int minLen = Math.min(oldLen, newLen);
+
+        for (int i = 0; i < minLen; i++) {
+            if (oldContent.charAt(i) == newContent.charAt(i)) {
+                commonPrefix++;
+            } else {
+                break;
+            }
+        }
+
+        System.out.println("DEBUG: findDeletePosition - common prefix: " + commonPrefix);
+
+        // 🔧 NEWLINE BOUNDARY CHECK
+        if (commonPrefix > 0 && commonPrefix < oldLen) {
+            char prevChar = oldContent.charAt(commonPrefix - 1);
+            char deletedChar = oldContent.charAt(commonPrefix);
+
+            System.out.println("DEBUG: Character before delete: '" +
+                    (prevChar == '\n' ? "NEWLINE" : String.valueOf(prevChar)) + "'");
+            System.out.println("DEBUG: First deleted character: '" +
+                    (deletedChar == '\n' ? "NEWLINE" : String.valueOf(deletedChar)) + "'");
+        }
+
+        return commonPrefix;
+    }
+
+    /**
+     * 🔧 Process INSERT operation with delays
+     */
+    private void processInsertOperation(String fileId, ContentDiff diff) {
+        try {
+            System.out.println("DEBUG: INSERT - pos: " + diff.position +
+                    ", text: '" + diff.text.replace("\n", "\\n") + "'");
+
+            // Turkish character check (except newlines)
+            if (containsTurkishCharacters(diff.text)) {
+                handleTurkishCharacterError(diff.position, diff.length);
+                return;
+            }
+
+            // Send each character separately with appropriate delays
+            for (int i = 0; i < diff.text.length(); i++) {
+                char c = diff.text.charAt(i);
+                String singleChar = String.valueOf(c);
+                int charPosition = diff.position + i;
+
+                System.out.println("DEBUG: Sending character '" +
+                        (c == '\n' ? "NEWLINE" : c == ' ' ? "SPACE" : String.valueOf(c)) +
+                        "' at position " + charPosition);
+
+                networkManager.insertText(fileId, charPosition, singleChar);
+
+                // 🔧 NEWLINE-SPECIFIC DELAY
+                if (c == '\n') {
+                    try { Thread.sleep(100); } catch (InterruptedException e) {} // Longer delay for newlines
+                } else if (diff.text.length() > 3) {
+                    try { Thread.sleep(20); } catch (InterruptedException e) {}
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("ERROR: processInsertOperation failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 🔧 Process DELETE operation with validation
+     */
+    private void processDeleteOperation(String fileId, ContentDiff diff) {
+        try {
+            System.out.println("DEBUG: DELETE - pos: " + diff.position +
+                    ", length: " + diff.length +
+                    ", text: '" + diff.text.replace("\n", "\\n") + "'");
+
+            // Validation before sending
+            if (diff.position < 0 || diff.length <= 0) {
+                System.err.println("ERROR: Invalid delete parameters - pos: " + diff.position +
+                        ", len: " + diff.length);
+                return;
+            }
+
+            // 🔧 NEWLINE DELETE ANALYSIS
+            long newlineCount = diff.text.chars().filter(ch -> ch == '\n').count();
+            if (newlineCount > 0) {
+                System.out.println("🔥 DELETE contains " + newlineCount + " newline(s) - sending with delay");
+
+                // Longer delay for newline-containing deletes
+                try { Thread.sleep(150); } catch (InterruptedException e) {}
+            }
+
+            // Send delete operation
+            networkManager.deleteText(fileId, diff.position, diff.length);
+
+        } catch (Exception e) {
+            System.err.println("ERROR: processDeleteOperation failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 🔧 Content difference data structure
+     */
+    private static class ContentDiff {
+        final boolean isInsert;
+        final int position;
+        final int length;
+        final String text;
+
+        ContentDiff(boolean isInsert, int position, int length, String text) {
+            this.isInsert = isInsert;
+            this.position = position;
+            this.length = length;
+            this.text = text;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("ContentDiff{%s, pos=%d, len=%d, text='%s'}",
+                    isInsert ? "INSERT" : "DELETE", position, length,
+                    text.replace("\n", "\\n"));
+        }
+    }
+
+    /**
+     * 🔧 Enhanced server update handling with thread safety
+     */
     private void handleFileUpdated(Message message) {
         SwingUtilities.invokeLater(() -> {
-            try {
+            synchronized (textChangeLock) {
                 isUpdatingFromServer = true;
+            }
 
+            try {
                 String operation = message.getData("operation");
                 String textValue = message.getData("text");
                 int position = Integer.parseInt(message.getData("position"));
-                String userId = message.getUserId();
+                String senderId = message.getUserId();
 
-                // 🔧 CLIENT-SIDE SPECIAL CHARACTER DECODING
-                String text;
-                if ("__SPACE__".equals(textValue)) {
-                    text = " ";
-                    System.out.println("DEBUG: CLIENT - Space decoded");
-                } else if ("__NEWLINE__".equals(textValue)) {
-                    text = "\n";
-                    System.out.println("DEBUG: CLIENT - Newline decoded");
-                } else if ("__CRLF__".equals(textValue)) {
-                    text = "\r\n";
-                    System.out.println("DEBUG: CLIENT - CRLF decoded");
-                } else if ("__TAB__".equals(textValue)) {
-                    text = "\t";
-                    System.out.println("DEBUG: CLIENT - Tab decoded");
-                } else {
-                    text = textValue;
-                }
+                // Decode special characters
+                String text = decodeSpecialCharacters(textValue);
 
-                System.out.println("SERVER UPDATE: " + operation + " by " + userId +
-                        " at pos " + position + " char: " + (text.equals("\n") ? "NEWLINE" :
-                        text.equals(" ") ? "SPACE" : "'" + text + "'"));
+                System.out.println("SERVER UPDATE: " + operation + " by " + senderId +
+                        " at pos " + position + " char: " +
+                        (text.equals("\n") ? "NEWLINE" :
+                                text.equals(" ") ? "SPACE" : "'" + text + "'"));
 
                 if ("insert".equals(operation) || "INSERT".equals(operation)) {
-                    String currentContent = editorPane.getText();
-                    String newContent = currentContent.substring(0, position) + text
-                            + currentContent.substring(position);
-                    editorPane.setText(newContent);
-                    lastContent = newContent;
-
-                    if (text.equals("\n")) {
-                        System.out.println("✏️ " + userId + " added NEWLINE at position " + position);
-                    } else if (text.equals(" ")) {
-                        System.out.println("✏️ " + userId + " added SPACE at position " + position);
-                    } else {
-                        System.out.println("✏️ " + userId + " added: \"" + text + "\" at position " + position);
-                    }
-
-                    statusLabel.setText(userId + " metin ekledi");
+                    handleServerInsert(position, text, senderId);
+                } else if ("delete".equals(operation) || "DELETE".equals(operation)) {
+                    int deleteLength = Integer.parseInt(message.getData("length"));
+                    handleServerDelete(position, deleteLength, senderId);
                 }
 
             } catch (Exception e) {
                 System.err.println("File update error: " + e.getMessage());
                 e.printStackTrace();
             } finally {
-                isUpdatingFromServer = false;
+                synchronized (textChangeLock) {
+                    isUpdatingFromServer = false;
+                }
             }
         });
     }
+
+    /**
+     * 🔧 Handle server INSERT with position validation
+     */
+    private void handleServerInsert(int position, String text, String senderId) {
+        try {
+            String currentContent = editorPane.getText();
+
+            // Position validation and auto-fix
+            if (position < 0) position = 0;
+            if (position > currentContent.length()) position = currentContent.length();
+
+            System.out.println("DEBUG: Server INSERT - original pos: " + position +
+                    ", content length: " + currentContent.length());
+
+            // Apply insert
+            String newContent = currentContent.substring(0, position) + text +
+                    currentContent.substring(position);
+
+            editorPane.setText(newContent);
+            lastContent = newContent; // Update immediately to prevent loops
+
+            // Log success
+            if (text.equals("\n")) {
+                System.out.println("✏️ " + senderId + " added NEWLINE at position " + position);
+            } else if (text.equals(" ")) {
+                System.out.println("✏️ " + senderId + " added SPACE at position " + position);
+            } else {
+                System.out.println("✏️ " + senderId + " added: \"" + text + "\" at position " + position);
+            }
+
+        } catch (Exception e) {
+            System.err.println("ERROR: handleServerInsert failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 🔧 Handle server DELETE with enhanced validation
+     */
+    private void handleServerDelete(int position, int length, String senderId) {
+        try {
+            String currentContent = editorPane.getText();
+
+            System.out.println("DEBUG: Server DELETE - pos: " + position +
+                    ", length: " + length + ", content length: " + currentContent.length());
+
+            // Enhanced validation for DELETE
+            if (position < 0) {
+                System.err.println("ERROR: Invalid delete position: " + position);
+                return;
+            }
+
+            if (position >= currentContent.length()) {
+                System.err.println("ERROR: Delete position beyond content: " + position +
+                        " >= " + currentContent.length());
+                return;
+            }
+
+            if (length <= 0) {
+                System.err.println("ERROR: Invalid delete length: " + length);
+                return;
+            }
+
+            // Auto-fix length if too big
+            int maxLength = currentContent.length() - position;
+            if (length > maxLength) {
+                System.out.println("DEBUG: Auto-fixing delete length: " + length + " → " + maxLength);
+                length = maxLength;
+            }
+
+            // Get text to be deleted for logging
+            String deletedText = currentContent.substring(position, position + length);
+            long newlineCount = deletedText.chars().filter(ch -> ch == '\n').count();
+
+            System.out.println("DEBUG: Deleting text: '" + deletedText.replace("\n", "\\n") +
+                    "' (contains " + newlineCount + " newlines)");
+
+            // Apply delete
+            String newContent = currentContent.substring(0, position) +
+                    currentContent.substring(position + length);
+
+            editorPane.setText(newContent);
+            lastContent = newContent; // Update immediately to prevent loops
+
+            // Log success
+            if (newlineCount > 0) {
+                System.out.println("🗑️ " + senderId + " deleted " + length + " characters including " +
+                        newlineCount + " newline(s) at position " + position);
+            } else {
+                System.out.println("🗑️ " + senderId + " deleted " + length + " characters at position " + position);
+            }
+
+        } catch (Exception e) {
+            System.err.println("ERROR: handleServerDelete failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 🔧 Decode special characters from server
+     */
+    private String decodeSpecialCharacters(String encodedText) {
+        if (encodedText == null) return "";
+
+        switch (encodedText) {
+            case "__SPACE__":
+                System.out.println("DEBUG: CLIENT - Space decoded");
+                return " ";
+            case "__NEWLINE__":
+                System.out.println("DEBUG: CLIENT - Newline decoded");
+                return "\n";
+            case "__CRLF__":
+                System.out.println("DEBUG: CLIENT - CRLF decoded");
+                return "\r\n";
+            case "__TAB__":
+                System.out.println("DEBUG: CLIENT - Tab decoded");
+                return "\t";
+            default:
+                return encodedText;
+        }
+    }
+
+    /**
+     * 🔧 Enhanced DocumentListener with better thread safety
+     */
+    private void setupEnhancedDocumentListener() {
+        editorPane.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                System.out.println("DEBUG: DocumentListener.insertUpdate - " +
+                        "isUpdatingFromServer: " + isUpdatingFromServer +
+                        ", isProcessingTextChange: " + isProcessingTextChange);
+
+                if (!isUpdatingFromServer && !isProcessingTextChange) {
+                    // Use SwingUtilities.invokeLater to ensure proper EDT handling
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            Thread.sleep(50); // Small delay to ensure all updates are complete
+                        } catch (InterruptedException ex) {}
+                        handleTextChange();
+                    });
+                } else {
+                    System.out.println("DEBUG: Skipping handleTextChange - server update or processing");
+                }
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                System.out.println("DEBUG: DocumentListener.removeUpdate - " +
+                        "isUpdatingFromServer: " + isUpdatingFromServer +
+                        ", isProcessingTextChange: " + isProcessingTextChange);
+
+                if (!isUpdatingFromServer && !isProcessingTextChange) {
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            Thread.sleep(50); // Small delay for stability
+                        } catch (InterruptedException ex) {}
+                        handleTextChange();
+                    });
+                } else {
+                    System.out.println("DEBUG: Skipping handleTextChange - server update or processing");
+                }
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                // Style changes - not relevant for content synchronization
+                System.out.println("DEBUG: DocumentListener.changedUpdate (style change)");
+            }
+        });
+
+        System.out.println("DEBUG: Enhanced DocumentListener setup completed");
+    }
+
+
 
     private void handleError(String errorMessage) {
         SwingUtilities.invokeLater(() -> {
@@ -602,7 +1000,6 @@ public class MainWindow extends JFrame {
             }
         });
 
-        // Ctrl+U: Altı çizili
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_U, InputEvent.CTRL_DOWN_MASK), "underline");
         actionMap.put("underline", new AbstractAction() {
             public void actionPerformed(ActionEvent e) {
@@ -611,25 +1008,6 @@ public class MainWindow extends JFrame {
             }
         });
 
-        // 🔧 ESKİ DocumentListener'ı KALDIR ve YENİ EKLE
-        // ❌ ESKİ KOD:
-    /*
-    editorPane.getDocument().addDocumentListener(new DocumentListener() {
-        public void insertUpdate(DocumentEvent e) {
-            handleTextChange();
-        }
-
-        public void removeUpdate(DocumentEvent e) {
-            handleTextChange();
-        }
-
-        public void changedUpdate(DocumentEvent e) {
-            handleTextChange();
-        }
-    });
-    */
-
-        // ✅ YENİ KOD: Space-aware DocumentListener
         editorPane.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
@@ -1006,94 +1384,55 @@ public class MainWindow extends JFrame {
         return text.matches(".*[çÇğĞıİöÖşŞüÜ].*");
     }
 
-    private void handleTextChange() {
-        if (isUpdatingFromServer) {
-            System.out.println("DEBUG: handleTextChange SKIPPED - isUpdatingFromServer=true");
-            return;
-        }
 
-        FileDisplayItem selected = documentList.getSelectedValue();
-        if (selected != null) {
-            try {
-                String currentContent = editorPane.getText();
-                String fileId = selected.getFileId();
 
-                System.out.println("=== HANDLE TEXT CHANGE DEBUG ===");
-                System.out.println("DEBUG: Current content length: " + currentContent.length());
-                System.out.println("DEBUG: Last content length: " + lastContent.length());
-                System.out.println("DEBUG: Length difference: " + (currentContent.length() - lastContent.length()));
 
-                if (currentContent.length() > lastContent.length()) {
-                    // INSERT OPERATION
-                    int insertPosition = findInsertPosition(lastContent, currentContent);
-                    int insertLength = currentContent.length() - lastContent.length();
-                    String insertedText = currentContent.substring(insertPosition, insertPosition + insertLength);
 
-                    System.out.println("DEBUG: INSERT detected");
-                    System.out.println("DEBUG: Insert position: " + insertPosition);
-                    System.out.println("DEBUG: Insert length: " + insertLength);
-                    System.out.println("DEBUG: Inserted text chars:");
 
-                    for (int i = 0; i < insertedText.length(); i++) {
-                        char c = insertedText.charAt(i);
-                        System.out.println("  [" + i + "] = '" + c + "' (ASCII: " + (int)c + ")");
-                        if (c == '\n') System.out.println("    ^^ NEWLINE CHARACTER ^^");
-                        if (c == ' ') System.out.println("    ^^ SPACE CHARACTER ^^");
-                    }
+    // 🔧 MEVCUT: Insert operation (değişiklik yok ama newline debug ekle)
+    private void handleInsertOperation(String fileId, String currentContent) {
+        try {
+            int insertPosition = findInsertPosition(lastContent, currentContent);
+            int insertLength = currentContent.length() - lastContent.length();
+            String insertedText = currentContent.substring(insertPosition, insertPosition + insertLength);
 
-                    // Türkçe karakter kontrolü (special characters hariç)
-                    if (containsTurkishCharacters(insertedText)) {
-                        handleTurkishCharacterError(insertPosition, insertedText.length());
-                        return;
-                    }
+            System.out.println("DEBUG: INSERT detected");
+            System.out.println("DEBUG: Insert position: " + insertPosition);
+            System.out.println("DEBUG: Inserted text: '" + insertedText.replace("\n", "\\n") + "'");
 
-                    // Her karakteri ayrı ayrı gönder
-                    for (int i = 0; i < insertedText.length(); i++) {
-                        char c = insertedText.charAt(i);
-                        String singleChar = String.valueOf(c);
-                        int charPosition = insertPosition + i;
-
-                        System.out.println("DEBUG: Sending character '" +
-                                (c == '\n' ? "NEWLINE" : c == ' ' ? "SPACE" : String.valueOf(c)) +
-                                "' at position " + charPosition);
-
-                        networkManager.insertText(fileId, charPosition, singleChar);
-
-                        // Newline için ekstra delay
-                        if (c == '\n') {
-                            try { Thread.sleep(50); } catch (InterruptedException e) {}
-                        } else if (insertedText.length() > 3) {
-                            try { Thread.sleep(10); } catch (InterruptedException e) {}
-                        }
-                    }
-
-                    lastContent = currentContent;
-                    System.out.println("DEBUG: INSERT completed - lastContent updated");
-
-                } else if (currentContent.length() < lastContent.length()) {
-                    // DELETE OPERATION
-                    int deletePosition = findDeletePosition(currentContent, lastContent);
-                    int deleteLength = lastContent.length() - currentContent.length();
-
-                    System.out.println("DEBUG: DELETE detected");
-                    System.out.println("DEBUG: Delete position: " + deletePosition);
-                    System.out.println("DEBUG: Delete length: " + deleteLength);
-
-                    // Silinen karakterleri göster
-                    String deletedText = lastContent.substring(deletePosition, deletePosition + deleteLength);
-                    System.out.println("DEBUG: Deleted text: '" + deletedText.replace("\n", "\\n") + "'");
-
-                    networkManager.deleteText(fileId, deletePosition, deleteLength);
-                    lastContent = currentContent;
-                    System.out.println("DEBUG: DELETE completed - lastContent updated");
-                }
-
-                System.out.println("=== HANDLE TEXT CHANGE END ===");
-
-            } catch (Exception e) {
-                System.err.println("ERROR: handleTextChange exception: " + e.getMessage());
-                e.printStackTrace();
+            // Türkçe karakter kontrolü (newline hariç)
+            if (containsTurkishCharacters(insertedText)) {
+                handleTurkishCharacterError(insertPosition, insertedText.length());
+                return;
             }
+
+            // Her karakteri ayrı ayrı gönder
+            for (int i = 0; i < insertedText.length(); i++) {
+                char c = insertedText.charAt(i);
+                String singleChar = String.valueOf(c);
+                int charPosition = insertPosition + i;
+
+                System.out.println("DEBUG: Sending character '" +
+                        (c == '\n' ? "NEWLINE" : c == ' ' ? "SPACE" : String.valueOf(c)) +
+                        "' at position " + charPosition);
+
+                networkManager.insertText(fileId, charPosition, singleChar);
+
+                // Newline için ekstra delay
+                if (c == '\n') {
+                    try { Thread.sleep(50); } catch (InterruptedException e) {}
+                } else if (insertedText.length() > 3) {
+                    try { Thread.sleep(10); } catch (InterruptedException e) {}
+                }
+            }
+
+            lastContent = currentContent;
+            System.out.println("DEBUG: INSERT completed - lastContent updated");
+
+        } catch (Exception e) {
+            System.err.println("ERROR: handleInsertOperation failed: " + e.getMessage());
+            e.printStackTrace();
+            lastContent = currentContent; // Reset to prevent infinite issues
         }
     }
 
@@ -1127,23 +1466,6 @@ public class MainWindow extends JFrame {
         return commonPrefixLength;
     }
 
-    private int findDeletePosition(String newText, String oldText) {
-        if (newText.isEmpty()) return 0;
-
-        // En uzun ortak prefix'i bul
-        int commonPrefixLength = 0;
-        int minLength = Math.min(oldText.length(), newText.length());
-
-        for (int i = 0; i < minLength; i++) {
-            if (oldText.charAt(i) == newText.charAt(i)) {
-                commonPrefixLength++;
-            } else {
-                break;
-            }
-        }
-
-        return commonPrefixLength;
-    }
 
     private void handleTurkishCharacterError(int position, int length) {
         SwingUtilities.invokeLater(() -> {
@@ -1164,10 +1486,7 @@ public class MainWindow extends JFrame {
         });
     }
     private void setupTextEditor() {
-        // 🔧 MEVCUT LISTENER'I KALDIR (eğer varsa)
-        // Document.getDocumentListeners() mevcut olmadığı için manuel takip
 
-        // Yeni DocumentListener ekle (önceki otomatik olarak replace olacak)
         editorPane.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
@@ -1227,35 +1546,6 @@ public class MainWindow extends JFrame {
 
         System.out.println("DEBUG: Text editor setup completed with space character debugging");
     }
-
-    public void testSpaceInsertion() {
-        try {
-            String testText = "Hello World Test"; // Space içeren test
-            System.out.println("=== SPACE TEST BAŞLADI ===");
-
-            FileDisplayItem selected = documentList.getSelectedValue();
-            if (selected != null) {
-                String fileId = selected.getFileId();
-
-                // Her karakteri tek tek test et
-                for (int i = 0; i < testText.length(); i++) {
-                    char c = testText.charAt(i);
-                    if (c == ' ') {
-                        System.out.println("TEST: Space karakteri gönderiliyor - pos: " + i);
-                    }
-                    networkManager.insertText(fileId, i, String.valueOf(c));
-                    Thread.sleep(100); // Görsel test için yavaşlat
-                }
-            }
-
-            System.out.println("=== SPACE TEST BİTTİ ===");
-
-        } catch (Exception e) {
-            System.err.println("Space test error: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
 
     private JPanel createChatPanel() {
         JPanel panel = new JPanel(new BorderLayout(5, 5));
