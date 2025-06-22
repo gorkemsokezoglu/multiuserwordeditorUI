@@ -3,8 +3,11 @@ package org.multiuserwordeditor.network;
 import org.multiuserwordeditor.model.Document;
 import org.multiuserwordeditor.model.Message;
 
-import java.io.*;
-import java.net.Socket;
+// WebSocket imports
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
+import java.net.URI;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -15,22 +18,29 @@ import java.util.List;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 
+/**
+ * 
+ * - MTP WebSocket Client Network Manager
+ * - Socket'den WebSocket'e migrate edilmiş versiyon
+ */
 public class NetworkManager {
     private static final Logger LOGGER = Logger.getLogger(NetworkManager.class.getName());
 
-    private Socket socket;
-    private PrintWriter writer;
-    private BufferedReader reader;
-    private ExecutorService executorService;
+    // WebSocket fields
+    private WebSocketClient webSocketClient;
+    private URI serverUri;
     private boolean isConnected;
     private String userId;
+
+    // Common fields
+    private ExecutorService executorService;
     private Consumer<Message> messageHandler;
     private Consumer<String> errorHandler;
     private Consumer<Document> documentUpdateHandler;
     private Consumer<String> userListUpdateHandler;
     private List<String> operationHistory = new ArrayList<>();
 
-    // Mesaj formatı sabitleri
+    // MTP Protocol constants
     private static final String DELIMITER = "|";
     private static final String DATA_SEPARATOR = ",";
     private static final String KEY_VALUE_SEPARATOR = ":";
@@ -39,61 +49,248 @@ public class NetworkManager {
     public NetworkManager() {
         this.executorService = Executors.newSingleThreadExecutor();
         this.isConnected = false;
+
+        LOGGER.info("WebSocket NetworkManager initialized");
+
     }
 
+    // WebSocket connect method with connection ready waiting
     public void connect(String host, int port) {
         try {
-            socket = new Socket(host, port);
-            writer = new PrintWriter(new BufferedWriter(
-                    new OutputStreamWriter(socket.getOutputStream(), "UTF-8")), true);
-            reader = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream(), "UTF-8"));
-            isConnected = true;
+            LOGGER.info("WebSocket connection başlatılıyor: " + host + ":" + port);
 
-            // 🔧 YENİ: Newline-aware mesaj okuma
-            executorService.submit(() -> {
+            // WebSocket URI oluştur
+            String wsUrl = "ws://" + host + ":" + port;
+            serverUri = new URI(wsUrl);
+
+            LOGGER.info("WebSocket URI: " + wsUrl);
+
+            // WebSocket client oluştur
+            createWebSocketClient();
+
+            // Bağlantıyı başlat
+            webSocketClient.connect();
+
+            LOGGER.info("WebSocket connection request sent");
+
+            // 🔧 FIX: Wait for connection to be ready (with timeout)
+            int maxWaitTime = 5000; // 5 seconds
+            int waitInterval = 100; // 100ms intervals
+            int totalWaited = 0;
+
+            while (!isConnected && totalWaited < maxWaitTime) {
                 try {
-                    StringBuilder messageBuffer = new StringBuilder();
-                    String line;
-
-                    while ((line = reader.readLine()) != null) {
-                        System.out.println("DEBUG: Raw line received: '" + line + "'");
-
-                        // Mesaj sonu kontrolü - | sayısı ile
-                        if (isCompleteMessage(line)) {
-                            // Tek başına complete mesaj
-                            handleServerMessage(line);
-                            messageBuffer.setLength(0); // Buffer'ı temizle
-                        } else {
-                            // Parçalı mesaj - buffer'a ekle
-                            if (messageBuffer.length() > 0) {
-                                messageBuffer.append("\n"); // Newline'ı restore et
-                            }
-                            messageBuffer.append(line);
-
-                            // Buffer'daki mesaj complete mi kontrol et
-                            String bufferedMessage = messageBuffer.toString();
-                            if (isCompleteMessage(bufferedMessage)) {
-                                handleServerMessage(bufferedMessage);
-                                messageBuffer.setLength(0); // Buffer'ı temizle
-                            }
-                        }
-                    }
-                } catch (IOException e) {
-                    handleError("Sunucu bağlantısı kesildi", e);
+                    Thread.sleep(waitInterval);
+                    totalWaited += waitInterval;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
-            });
+            }
 
-            LOGGER.info("Sunucuya bağlanıldı: " + host + ":" + port);
-        } catch (IOException e) {
-            handleError("Sunucuya bağlanılamadı", e);
+            if (isConnected) {
+                LOGGER.info("✅ WebSocket connection established successfully in " + totalWaited + "ms");
+            } else {
+                LOGGER.warning("⚠ WebSocket connection timeout after " + maxWaitTime + "ms");
+                throw new Exception("WebSocket connection timeout");
+            }
+
+        } catch (Exception e) {
+            LOGGER.severe("WebSocket connection error: " + e.getMessage());
+            handleError("WebSocket sunucusuna bağlanılamadı", e);
+        }
+
+    }
+
+    // WebSocket client oluşturma
+    private void createWebSocketClient() {
+        webSocketClient = new WebSocketClient(serverUri) {
+
+            @Override
+            public void onOpen(ServerHandshake handshake) {
+                LOGGER.info("✅ WebSocket connection opened!");
+                isConnected = true;
+
+                System.out.println("=== WEBSOCKET CLIENT CONNECTED ===");
+                System.out.println("Server handshake: " + handshake.getHttpStatus());
+                System.out.println("Ready to send/receive messages");
+                System.out.println("================================");
+            }
+
+            @Override
+            public void onMessage(String message) {
+                try {
+                    System.out.println("📨 WebSocket message received: " + message);
+                    handleServerMessage(message);
+                } catch (Exception e) {
+                    LOGGER.severe("Message handling error: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void onClose(int code, String reason, boolean remote) {
+                LOGGER.info(
+                        "WebSocket connection closed. Code: " + code + ", Reason: " + reason + ", Remote: " + remote);
+                isConnected = false;
+
+                System.out.println("=== WEBSOCKET CLIENT DISCONNECTED ===");
+                System.out.println("Close code: " + code);
+                System.out.println("Reason: " + reason);
+                System.out.println("Remote initiated: " + remote);
+                System.out.println("===================================");
+
+                if (errorHandler != null) {
+                    errorHandler.accept("WebSocket bağlantısı kesildi: " + reason);
+                }
+            }
+
+            @Override
+            public void onError(Exception ex) {
+                LOGGER.severe("WebSocket error: " + ex.getMessage());
+                ex.printStackTrace();
+
+                System.out.println("❌ WebSocket error: " + ex.getMessage());
+
+                isConnected = false;
+                handleError("WebSocket hatası", ex);
+            }
+        };
+
+    }
+
+    // WebSocket mesaj gönderme
+    private void sendWebSocketMessage(String message) {
+        if (webSocketClient != null && isConnected) {
+            try {
+                System.out.println("📤 Sending WebSocket message: " + message);
+                webSocketClient.send(message);
+                LOGGER.info("WebSocket message sent successfully");
+            } catch (Exception e) {
+                LOGGER.severe("Failed to send WebSocket message: " + e.getMessage());
+                handleError("Mesaj gönderilemedi", e);
+            }
+        } else {
+            LOGGER.warning("Cannot send message - WebSocket not connected");
+            handleError("WebSocket bağlantısı yok", null);
         }
     }
 
+    // Disconnect method
+    public void disconnect() {
+        try {
+            if (isConnected && userId != null) {
+                Message disconnectMsg = Message.createDisconnect(userId, "Client disconnected");
+                sendWebSocketMessage(disconnectMsg.serialize());
+            }
 
+            isConnected = false;
+
+            if (webSocketClient != null) {
+                webSocketClient.close();
+            }
+
+            if (executorService != null) {
+                executorService.shutdown();
+            }
+
+            LOGGER.info("WebSocket client disconnected successfully");
+
+        } catch (Exception e) {
+            LOGGER.severe("Disconnect error: " + e.getMessage());
+        }
+
+    }
+
+    // Register method - WebSocket implementation
+    public void register(String username, String password) {
+        try {
+            Message registerMsg = Message.createRegister(username, password);
+            sendWebSocketMessage(registerMsg.serialize());
+            LOGGER.info("Register request sent via WebSocket");
+        } catch (Exception e) {
+            handleError("Kayıt olunurken hata", e);
+        }
+    }
+
+    // Login method - WebSocket implementation
+    public void login(String username, String password) {
+        try {
+            Message loginMsg = Message.createLogin(username, password);
+            sendWebSocketMessage(loginMsg.serialize());
+            LOGGER.info("Login request sent via WebSocket");
+        } catch (Exception e) {
+            handleError("Giriş yapılırken hata", e);
+        }
+    }
+
+    // Document creation - WebSocket implementation
+    public void createDocument(String filename) {
+        try {
+            System.out.println("=== WEBSOCKET CREATE DOCUMENT ===");
+            System.out.println("DEBUG: Creating document with name: '" + filename + "'");
+
+            if (filename == null || filename.trim().isEmpty()) {
+                System.err.println("ERROR: Document name is null or empty");
+                throw new IllegalArgumentException("Dosya adı boş olamaz");
+            }
+
+            if (!isConnected()) {
+                System.err.println("ERROR: Not connected to WebSocket server");
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
+            }
+
+            // Clean filename and convert to UTF-8
+            String cleanFilename = new String(filename.trim().getBytes("UTF-8"), "UTF-8");
+
+            // Create and send message
+            Message createMsg = Message.createFileCreate(userId, cleanFilename);
+            String rawMessage = createMsg.serialize();
+
+            System.out.println("DEBUG: Document creation request - UserId: " + userId + ", Filename: " + cleanFilename);
+            System.out.println("DEBUG: Raw WebSocket message: " + rawMessage);
+
+            // Send via WebSocket
+            sendWebSocketMessage(rawMessage);
+
+            LOGGER.info("Document creation request sent via WebSocket - UserId: " + userId + ", Filename: "
+                    + cleanFilename);
+            System.out.println("SUCCESS: FILE_CREATE WebSocket message sent successfully");
+
+        } catch (Exception e) {
+            System.err.println("ERROR: Failed to create document '" + filename + "': " + e.getMessage());
+            e.printStackTrace();
+            handleError("Doküman oluşturulurken hata oluştu", e);
+            LOGGER.severe("Document creation error: " + e.getMessage());
+        }
+
+    }
+
+    // Document opening - WebSocket implementation
+    public void openDocument(String fileId) {
+        try {
+            if (fileId == null || fileId.trim().isEmpty()) {
+                throw new IllegalArgumentException("Dosya ID boş olamaz");
+            }
+
+            if (!isConnected()) {
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
+            }
+
+            Message openMsg = Message.createFileOpen(userId, fileId.trim());
+            sendWebSocketMessage(openMsg.serialize());
+
+            LOGGER.info("Document open request sent via WebSocket: " + fileId);
+        } catch (Exception e) {
+            handleError("Doküman açılırken hata", e);
+        }
+
+    }
+
+    // Document deletion - WebSocket implementation
     public void deleteDocument(String fileId) {
         try {
-            System.out.println("=== NETWORK MANAGER DELETE DOCUMENT ===");
+            System.out.println("=== WEBSOCKET DELETE DOCUMENT ===");
             System.out.println("DEBUG: Deleting document with fileId: '" + fileId + "'");
 
             if (fileId == null || fileId.trim().isEmpty()) {
@@ -102,8 +299,8 @@ public class NetworkManager {
             }
 
             if (!isConnected()) {
-                System.err.println("ERROR: Not connected to server");
-                throw new IllegalStateException("Sunucuya bağlı değil");
+                System.err.println("ERROR: Not connected to WebSocket server");
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
             }
 
             if (userId == null || userId.trim().isEmpty()) {
@@ -128,244 +325,53 @@ public class NetworkManager {
             String rawMessage = deleteMsg.serialize();
 
             System.out.println("DEBUG: Delete request - UserId: " + userId + ", FileId: " + cleanFileId);
-            System.out.println("DEBUG: Raw delete message: " + rawMessage);
+            System.out.println("DEBUG: Raw WebSocket delete message: " + rawMessage);
 
-            // Send as UTF-8
-            writer.println(rawMessage);
-            writer.flush();
+            // Send via WebSocket
+            sendWebSocketMessage(rawMessage);
 
-            // 🔧 ENHANCED: Auto-refresh file list after deletion with delay
-            scheduleFileListRefresh();
+            LOGGER.info(
+                    "Document deletion request sent via WebSocket - UserId: " + userId + ", FileId: " + cleanFileId);
+            System.out.println("SUCCESS: FILE_DELETE WebSocket message sent successfully");
 
-            LOGGER.info("Document deletion request sent - UserId: " + userId + ", FileId: " + cleanFileId);
-            System.out.println("SUCCESS: FILE_DELETE message sent successfully");
-            System.out.println("=== NETWORK MANAGER DELETE DOCUMENT END ===");
-
-        } catch (IllegalArgumentException e) {
-            System.err.println("ERROR: Invalid fileId: " + e.getMessage());
-            handleError("Geçersiz dosya ID", e);
-            throw e;
-        } catch (IllegalStateException e) {
-            System.err.println("ERROR: Invalid state: " + e.getMessage());
-            handleError("Bağlantı sorunu", e);
-            throw e;
         } catch (Exception e) {
             System.err.println("ERROR: Failed to delete document '" + fileId + "': " + e.getMessage());
             e.printStackTrace();
             handleError("Doküman silinirken hata oluştu", e);
             LOGGER.severe("Document deletion error: " + e.getMessage());
-            throw new RuntimeException("Document deletion failed", e);
         }
+
     }
 
-    /**
-     * 🔧 NEW: Check if user can delete document (optional validation)
-     */
-    public boolean canDeleteDocument(String fileId) {
-        // Basic client-side validation
-        if (fileId == null || fileId.trim().isEmpty()) {
-            return false;
-        }
-
-        if (!isConnected() || userId == null) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private boolean isCompleteMessage(String message) {
-        if (message == null || message.trim().isEmpty()) {
-            return false;
-        }
-
-        // 🔧 YENİ: Daha akıllı pipe kontrolü
-        // İlk 3 pipe'ı bul (TYPE|USER_ID|FILE_ID|)
-        int firstPipe = message.indexOf('|');
-        if (firstPipe == -1) return false;
-
-        int secondPipe = message.indexOf('|', firstPipe + 1);
-        if (secondPipe == -1) return false;
-
-        int thirdPipe = message.indexOf('|', secondPipe + 1);
-        if (thirdPipe == -1) return false;
-
-        // Son pipe'ı bul (|TIMESTAMP)
-        int lastPipe = message.lastIndexOf('|');
-        if (lastPipe == thirdPipe) return false; // DATA kısmı yok
-
-        // TIMESTAMP kısmı sayı olmalı
+    // File list request - WebSocket implementation
+    public void requestFileList() {
         try {
-            String timestampPart = message.substring(lastPipe + 1);
-            Long.parseLong(timestampPart.trim());
-
-            boolean isComplete = true;
-
-            // Debug için log
-            System.out.println("DEBUG: Smart message check - isComplete: " + isComplete +
-                    " timestamp: '" + timestampPart.trim() + "' message: '" +
-                    (message.length() > 100 ? message.substring(0, 100) + "..." : message) + "'");
-
-            return isComplete;
-
-        } catch (NumberFormatException e) {
-            System.out.println("DEBUG: Invalid timestamp in message: '" + message + "'");
-            return false;
-        }
-    }
-
-    public void disconnect() {
-        if (isConnected && userId != null) {
-            Message disconnectMsg = Message.createDisconnect(userId, "Client disconnected");
-            writer.println(disconnectMsg.serialize());
-            writer.flush();
-        }
-
-        try {
-            isConnected = false;
-            if (writer != null)
-                writer.close();
-            if (reader != null)
-                reader.close();
-            if (socket != null)
-                socket.close();
-            executorService.shutdown();
-        } catch (IOException e) {
-            handleError("Bağlantı kapatılırken hata", e);
-        }
-    }
-
-    private String formatData(String... keyValues) {
-        if (keyValues.length == 0)
-            return "empty";
-        if (keyValues.length % 2 != 0)
-            return "empty";
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < keyValues.length; i += 2) {
-            if (i > 0)
-                sb.append(DATA_SEPARATOR);
-            sb.append(keyValues[i]).append(KEY_VALUE_SEPARATOR).append(keyValues[i + 1]);
-        }
-        return sb.toString();
-    }
-
-    private void sendMessage(String type, String userId, String fileId, String data) {
-        // 🔧 DEPRECATED: Use sendMessageSafe instead
-        sendMessageSafe(type, userId, fileId, data);
-    }
-
-    public void register(String username, String password) {
-        try {
-            Message registerMsg = Message.createRegister(username, password);
-            writer.println(registerMsg.serialize());
-            writer.flush();
-        } catch (Exception e) {
-            handleError("Kayıt olunurken hata", e);
-        }
-    }
-
-    public void login(String username, String password) {
-        try {
-            Message loginMsg = Message.createLogin(username, password);
-            writer.println(loginMsg.serialize());
-            writer.flush();
-        } catch (Exception e) {
-            handleError("Giriş yapılırken hata", e);
-        }
-    }
-
-    // Türkçe karakterleri İngilizce karakterlere dönüştüren yardımcı metod
-    private String convertTurkishToEnglish(String text) {
-        if (text == null)
-            return null;
-
-        return text.replace("ı", "i")
-                .replace("ğ", "g")
-                .replace("ü", "u")
-                .replace("ş", "s")
-                .replace("ö", "o")
-                .replace("ç", "c")
-                .replace("İ", "I")
-                .replace("Ğ", "G")
-                .replace("Ü", "U")
-                .replace("Ş", "S")
-                .replace("Ö", "O")
-                .replace("Ç", "C");
-    }
-
-    public void createDocument(String filename) {
-        try {
-            System.out.println("=== ENHANCED NETWORK MANAGER CREATE DOCUMENT ===");
-            System.out.println("DEBUG: Creating document with name: '" + filename + "'");
-
-            if (filename == null || filename.trim().isEmpty()) {
-                System.err.println("ERROR: Document name is null or empty");
-                throw new IllegalArgumentException("Dosya adı boş olamaz");
-            }
+            System.out.println("=== WEBSOCKET REQUEST FILE LIST ===");
 
             if (!isConnected()) {
-                System.err.println("ERROR: Not connected to server");
-                throw new IllegalStateException("Sunucuya bağlı değil");
+                System.err.println("ERROR: Not connected to WebSocket server");
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
             }
 
-            // Clean filename and convert to UTF-8
-            String cleanFilename = new String(filename.trim().getBytes("UTF-8"), "UTF-8");
+            Message listMsg = Message.createFileList(userId);
+            String rawMessage = listMsg.serialize();
 
-            // Create and send message
-            Message createMsg = Message.createFileCreate(userId, cleanFilename);
-            String rawMessage = createMsg.serialize();
+            System.out.println("DEBUG: Sending FILE_LIST request via WebSocket");
+            System.out.println("DEBUG: Raw WebSocket message: " + rawMessage);
 
-            System.out.println("DEBUG: Document creation request - UserId: " + userId + ", Filename: " + cleanFilename);
-            System.out.println("DEBUG: Raw message: " + rawMessage);
+            sendWebSocketMessage(rawMessage);
 
-            // Send as UTF-8
-            writer.println(rawMessage);
-            writer.flush();
+            System.out.println("SUCCESS: FILE_LIST WebSocket request sent");
 
-            // 🔧 ENHANCED: Auto-refresh file list after creation with delay
-            scheduleFileListRefresh();
-
-            LOGGER.info("Document creation request sent - UserId: " + userId + ", Filename: " + cleanFilename);
-            System.out.println("SUCCESS: FILE_CREATE message sent successfully");
-            System.out.println("=== ENHANCED NETWORK MANAGER CREATE DOCUMENT END ===");
-
-        } catch (IllegalArgumentException e) {
-            System.err.println("ERROR: Invalid filename: " + e.getMessage());
-            handleError("Geçersiz dosya adı", e);
-            throw e;
         } catch (Exception e) {
-            System.err.println("ERROR: Failed to create document '" + filename + "': " + e.getMessage());
+            System.err.println("ERROR: Failed to request file list: " + e.getMessage());
             e.printStackTrace();
-            handleError("Doküman oluşturulurken hata oluştu", e);
-            LOGGER.severe("Document creation error: " + e.getMessage());
-            throw new RuntimeException("Document creation failed", e);
+            handleError("Dosya listesi alınırken hata", e);
         }
+
     }
 
-    public void openDocument(String fileId) {
-        try {
-            Message openMsg = Message.createFileOpen(userId, fileId);
-            writer.println(openMsg.serialize());
-            writer.flush();
-        } catch (Exception e) {
-            handleError("Doküman açılırken hata", e);
-        }
-    }
-
-    public void saveDocument(String fileId) {
-        try {
-            Message saveMsg = Message.createSave(userId, fileId);
-            writer.println(saveMsg.serialize());
-            writer.flush();
-        } catch (Exception e) {
-            handleError("Doküman kaydedilirken hata", e);
-        }
-    }
-
-
-// 🔧 1. CLIENT: NetworkManager.java - Enhanced NEWLINE message creation
-
+    // Text insertion - WebSocket implementation
     public void insertText(String fileId, int position, String text) {
         try {
             if (text == null || text.length() == 0) {
@@ -373,17 +379,19 @@ public class NetworkManager {
                 return;
             }
 
-            // 🔧 ENHANCED MESSAGE CREATION WITH PROPER ESCAPING
+            if (!isConnected()) {
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
+            }
+
+            // Enhanced message creation with proper escaping
             String data;
             if (text.equals(" ")) {
                 data = "position:" + position + ",text:__SPACE__,userId:" + this.userId;
                 System.out.println("DEBUG: Space character encoded as __SPACE__");
 
             } else if (text.equals("\n")) {
-                // 🔧 CRITICAL FIX: Properly construct NEWLINE message
                 data = "position:" + position + ",text:__NEWLINE__,userId:" + this.userId;
                 System.out.println("DEBUG: *** NEWLINE character encoded as __NEWLINE__ ***");
-                System.out.println("DEBUG: NEWLINE message data: '" + data + "'");
 
             } else if (text.equals("\r\n")) {
                 data = "position:" + position + ",text:__CRLF__,userId:" + this.userId;
@@ -394,166 +402,238 @@ public class NetworkManager {
                 System.out.println("DEBUG: Tab character encoded as __TAB__");
 
             } else {
-                // Normal characters
                 data = "position:" + position + ",text:" + text + ",userId:" + this.userId;
             }
 
             System.out.println("DEBUG: Final insertText data: '" + data + "'");
 
-            // 🔧 SEND WITH ENHANCED MESSAGE CREATION
+            // Send with enhanced message creation
             sendMessageSafe("TEXT_INSERT", this.userId, fileId, data);
 
-            LOGGER.info("insertText: Sent - pos:" + position + " text:'" +
+            LOGGER.info("insertText: Sent via WebSocket - pos:" + position + " text:'" +
                     (text.equals("\n") ? "NEWLINE" : text.equals(" ") ? "SPACE" : text) + "'");
 
         } catch (Exception e) {
             LOGGER.severe("insertText error: " + e.getMessage());
             e.printStackTrace();
         }
+
     }
+
+    // Text deletion - WebSocket implementation
+    public void deleteText(String fileId, int position, int length) {
+        try {
+            if (!isConnected()) {
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
+            }
+
+            String data = "position:" + position + ",length:" + length + ",userId:" + this.userId;
+
+            sendMessageSafe("TEXT_DELETE", this.userId, fileId, data);
+
+            LOGGER.info("deleteText: Metin silme isteği WebSocket ile gönderildi - FileId: " + fileId +
+                    ", Position: " + position + ", Length: " + length);
+
+        } catch (Exception e) {
+            LOGGER.severe("deleteText error: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    // Document update - WebSocket implementation
+    public void updateDocument(String fileId, String content) {
+        if (content != null && !content.isEmpty()) {
+            insertText(fileId, 0, content);
+        }
+    }
+
+    // Document save - WebSocket implementation
+    public void saveDocument(String fileId) {
+        try {
+            if (!isConnected()) {
+                throw new IllegalStateException("WebSocket sunucusuna bağlı değil");
+            }
+
+            Message saveMsg = Message.createSave(userId, fileId);
+            sendWebSocketMessage(saveMsg.serialize());
+
+            LOGGER.info("Document save request sent via WebSocket: " + fileId);
+        } catch (Exception e) {
+            handleError("Doküman kaydedilirken hata", e);
+        }
+
+    }
+
+    // Enhanced message sending with WebSocket
     private void sendMessageSafe(String type, String userId, String fileId, String data) {
-        if (isConnected && writer != null) {
+        if (isConnected() && webSocketClient != null) {
             try {
-                // 🔧 CONSTRUCT MESSAGE MANUALLY WITH NEWLINE PROTECTION
+                // Construct message manually with newline protection
                 StringBuilder messageBuilder = new StringBuilder();
                 messageBuilder.append(type).append(DELIMITER);
                 messageBuilder.append(userId != null ? userId : "null").append(DELIMITER);
                 messageBuilder.append(fileId != null ? fileId : "null").append(DELIMITER);
                 messageBuilder.append(data != null ? data : "empty").append(DELIMITER);
                 messageBuilder.append(System.currentTimeMillis());
-                messageBuilder.append(MESSAGE_END); // Add final newline
+                messageBuilder.append(MESSAGE_END);
 
                 String finalMessage = messageBuilder.toString();
 
-                // 🔧 DEBUG FOR NEWLINE MESSAGES
+                // Debug for newline messages
                 if (data != null && data.contains("__NEWLINE__")) {
                     System.out.println("=== NEWLINE MESSAGE DEBUG ===");
-                    System.out.println("DEBUG: Constructed message: '" + finalMessage.replace("\n", "\\n") + "'");
+                    System.out.println(
+                            "DEBUG: Constructed WebSocket message: '" + finalMessage.replace("\n", "\\n") + "'");
                     System.out.println("DEBUG: Message length: " + finalMessage.length());
-                    System.out.println("DEBUG: Pipe count: " + (finalMessage.length() - finalMessage.replace("|", "").length()));
+                    System.out.println(
+                            "DEBUG: Pipe count: " + (finalMessage.length() - finalMessage.replace("|", "").length()));
                     System.out.println("DEBUG: Ends with newline: " + finalMessage.endsWith("\n"));
                     System.out.println("========================");
                 }
 
-                // Send the message
-                writer.print(finalMessage);
-                writer.flush();
+                // Send via WebSocket
+                webSocketClient.send(finalMessage);
 
-                System.out.println("DEBUG: Message sent successfully: " + type);
+                System.out.println("DEBUG: WebSocket message sent successfully: " + type);
 
             } catch (Exception e) {
                 LOGGER.severe("sendMessageSafe error: " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
-            System.err.println("ERROR: Cannot send message - not connected or writer is null");
+            System.err.println("ERROR: Cannot send message - WebSocket not connected");
         }
+
     }
 
-    public void requestFileList() {
-        try {
-            System.out.println("=== ENHANCED NETWORK MANAGER REQUEST FILE LIST ===");
-
-            if (!isConnected()) {
-                System.err.println("ERROR: Not connected to server");
-                throw new IllegalStateException("Sunucuya bağlı değil");
-            }
-
-            Message listMsg = Message.createFileList(userId);
-            String rawMessage = listMsg.serialize();
-
-            System.out.println("DEBUG: Sending FILE_LIST request");
-            System.out.println("DEBUG: Raw message: " + rawMessage);
-
-            writer.println(rawMessage);
-            writer.flush();
-
-            System.out.println("SUCCESS: FILE_LIST request sent");
-            System.out.println("=== ENHANCED NETWORK MANAGER REQUEST FILE LIST END ===");
-
-        } catch (Exception e) {
-            System.err.println("ERROR: Failed to request file list: " + e.getMessage());
-            e.printStackTrace();
-            handleError("Dosya listesi alınırken hata", e);
-
-            // 🔧 RETRY MECHANISM: Auto-retry after 2 seconds
-            scheduleFileListRetry();
-        }
-    }
-    private void scheduleFileListRefresh() {
-        // Use a timer to refresh file list after a short delay
-        java.util.Timer refreshTimer = new java.util.Timer();
-        refreshTimer.schedule(new java.util.TimerTask() {
-            @Override
-            public void run() {
-                System.out.println("DEBUG: Auto-refreshing file list after document creation");
-                try {
-                    requestFileList();
-                } catch (Exception e) {
-                    System.err.println("ERROR: Auto-refresh failed: " + e.getMessage());
-                }
-                refreshTimer.cancel();
-            }
-        }, 800); // 800ms delay to ensure server processing is complete
-    }
-
-    /**
-     * 🔧 NEW: Schedule file list retry on failure
-     */
-    private void scheduleFileListRetry() {
-        java.util.Timer retryTimer = new java.util.Timer();
-        retryTimer.schedule(new java.util.TimerTask() {
-            @Override
-            public void run() {
-                System.out.println("DEBUG: Retrying file list request...");
-                try {
-                    requestFileList();
-                } catch (Exception retryEx) {
-                    System.err.println("ERROR: Retry also failed: " + retryEx.getMessage());
-                }
-                retryTimer.cancel();
-            }
-        }, 1000); // 2 second retry delay
-    }
-
+    // Complete server message handling - migrated from Socket version
     private void handleServerMessage(String rawMessage) {
         try {
-            System.out.println("=== RAW MESSAGE DEBUG ===");
-            System.out.println("Raw mesaj: '" + rawMessage + "'");
+            System.out.println("=== WEBSOCKET RAW MESSAGE DEBUG ===");
+            System.out.println("Raw WebSocket mesaj: '" + rawMessage + "'");
 
-            // ========== FILE_LIST_RESP ÖZL İŞLEME ==========
+            // Special handling for FILE_LIST_RESP (just like Socket version)
             if (rawMessage.startsWith("FILE_LIST_RESP|")) {
                 System.out.println("DEBUG: FILE_LIST_RESP özel işleme başlıyor...");
-
                 handleFileListResponseRaw(rawMessage);
-                return; // Normal deserialize'a gitme
+                return;
             }
+
+            // Special handling for FILE_DELETE_ACK
             if (rawMessage.startsWith("FILE_DELETE_ACK|")) {
                 System.out.println("DEBUG: FILE_DELETE_ACK özel işleme başlıyor...");
                 handleFileDeleteAckRaw(rawMessage);
-                return; // Normal deserialize'a gitme
+                return;
             }
 
-
-            // ========== DİĞER MESAJLAR NORMAL İŞLEME ==========
+            // Normal message deserialization for other message types
             Message message = Message.deserialize(rawMessage);
 
-            if (messageHandler != null) {
+            if (message != null && messageHandler != null) {
                 messageHandler.accept(message);
+            } else if (message == null) {
+                LOGGER.warning("Failed to deserialize WebSocket message: " + rawMessage);
             }
 
         } catch (Exception e) {
-            System.err.println("ERROR: Mesaj işleme hatası: " + e.getMessage());
+            System.err.println("ERROR: WebSocket mesaj işleme hatası: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+    }
+
+    /**
+     * - FILE_LIST_RESP mesajlarını özel olarak işler (Socket kodundan migrate)
+     */
+    private void handleFileListResponseRaw(String rawMessage) {
+        try {
+            System.out.println("=== WEBSOCKET FILE_LIST_RESP HANDLER ===");
+
+            // 🔧 FIX: Remove any trailing newlines or whitespace
+            String cleanMessage = rawMessage.trim();
+            if (cleanMessage.endsWith("\n")) {
+                cleanMessage = cleanMessage.substring(0, cleanMessage.length() - 1);
+            }
+
+            System.out.println("DEBUG: Cleaned message: '" + cleanMessage + "'");
+
+            // Format:
+            // FILE_LIST_RESP|userId|fileId|files:file1:file1.txt:0|file2:file2.txt:0|...|timestamp
+            String[] parts = cleanMessage.split("\\|");
+
+            if (parts.length < 4) {
+                System.err.println("ERROR: Geçersiz FILE_LIST_RESP formatı - parts: " + parts.length);
+                return;
+            }
+
+            String userId = "null".equals(parts[1]) ? null : parts[1];
+            String fileId = "null".equals(parts[2]) ? null : parts[2];
+
+            // 🔧 FIX: Clean timestamp before parsing
+            String timestampStr = parts[parts.length - 1].trim();
+            System.out.println("DEBUG: Raw timestamp string: '" + timestampStr + "'");
+
+            long timestamp;
+            try {
+                timestamp = Long.parseLong(timestampStr);
+                System.out.println("DEBUG: Parsed timestamp successfully: " + timestamp);
+            } catch (NumberFormatException e) {
+                System.err.println("ERROR: Failed to parse timestamp: '" + timestampStr + "'");
+                timestamp = System.currentTimeMillis();
+            }
+
+            // Files data'yı birleştir (Part[3]'ten Part[length-2]'ye kadar)
+            StringBuilder filesDataBuilder = new StringBuilder();
+
+            // İlk dosya part'ı (files: prefix'ini temizle)
+            if (parts[3].startsWith("files:")) {
+                filesDataBuilder.append(parts[3].substring("files:".length()));
+            }
+
+            // Diğer dosya part'larını ekle
+            for (int i = 4; i < parts.length - 1; i++) {
+                filesDataBuilder.append("|").append(parts[i]);
+            }
+
+            String finalFilesData = filesDataBuilder.toString();
+            System.out.println("DEBUG: WebSocket birleştirilmiş files data: '" + finalFilesData + "'");
+
+            // Manuel message oluştur
+            Message fileListMessage = new Message(Message.MessageType.FILE_LIST_RESP, userId, fileId);
+            fileListMessage.addData("files", finalFilesData);
+
+            // Normal handler'a gönder
+            if (messageHandler != null) {
+                messageHandler.accept(fileListMessage);
+            }
+
+            System.out.println("SUCCESS: FILE_LIST_RESP WebSocket message processed");
+
+        } catch (Exception e) {
+            System.err.println("ERROR: FILE_LIST_RESP WebSocket parse hatası: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
+    /**
+     * - FILE_DELETE_ACK mesajlarını özel olarak işler (Socket kodundan migrate)
+     */
     private void handleFileDeleteAckRaw(String rawMessage) {
         try {
-            System.out.println("=== FILE DELETE ACK HANDLER DEBUG ===");
-            System.out.println("DEBUG: Raw FILE_DELETE_ACK message: '" + rawMessage + "'");
+            System.out.println("=== WEBSOCKET FILE DELETE ACK HANDLER ===");
 
-            // Format: FILE_DELETE_ACK|userId|fileId|status:success,message:Dosya silindi|timestamp
-            String[] parts = rawMessage.split("\\|");
+            // 🔧 FIX: Remove any trailing newlines or whitespace
+            String cleanMessage = rawMessage.trim();
+            if (cleanMessage.endsWith("\n")) {
+                cleanMessage = cleanMessage.substring(0, cleanMessage.length() - 1);
+            }
+
+            System.out.println("DEBUG: Raw WebSocket FILE_DELETE_ACK message: '" + cleanMessage + "'");
+
+            // Format: FILE_DELETE_ACK|userId|fileId|status:success,message:Dosya
+            // silindi|timestamp
+            String[] parts = cleanMessage.split("\\|");
 
             if (parts.length < 4) {
                 System.err.println("ERROR: Geçersiz FILE_DELETE_ACK formatı - parts: " + parts.length);
@@ -563,10 +643,18 @@ public class NetworkManager {
             String userId = "null".equals(parts[1]) ? null : parts[1];
             String fileId = "null".equals(parts[2]) ? null : parts[2];
             String dataSection = parts[3];
-            long timestamp = parts.length > 4 ? Long.parseLong(parts[4]) : System.currentTimeMillis();
 
-            System.out.println("DEBUG: Parsed - userId: " + userId + ", fileId: " + fileId);
-            System.out.println("DEBUG: Data section: '" + dataSection + "'");
+            // 🔧 FIX: Clean timestamp before parsing
+            String timestampStr = parts.length > 4 ? parts[4].trim() : String.valueOf(System.currentTimeMillis());
+            long timestamp;
+            try {
+                timestamp = Long.parseLong(timestampStr);
+            } catch (NumberFormatException e) {
+                System.err.println("ERROR: Failed to parse DELETE timestamp: '" + timestampStr + "'");
+                timestamp = System.currentTimeMillis();
+            }
+
+            System.out.println("DEBUG: WebSocket parsed - userId: " + userId + ", fileId: " + fileId);
 
             // Parse data section
             Map<String, String> dataMap = new HashMap<>();
@@ -584,7 +672,7 @@ public class NetworkManager {
             String message = dataMap.get("message");
             boolean success = "success".equals(status);
 
-            System.out.println("DEBUG: Delete result - success: " + success + ", message: '" + message + "'");
+            System.out.println("DEBUG: WebSocket delete result - success: " + success + ", message: '" + message + "'");
 
             // Manuel message oluştur
             Message deleteAckMessage = new Message(Message.MessageType.FILE_DELETE_ACK, userId, fileId);
@@ -596,87 +684,74 @@ public class NetworkManager {
                 messageHandler.accept(deleteAckMessage);
             }
 
-            System.out.println("SUCCESS: FILE_DELETE_ACK message processed successfully");
-            System.out.println("=== FILE DELETE ACK HANDLER END ===");
+            System.out.println("SUCCESS: FILE_DELETE_ACK WebSocket message processed");
 
         } catch (Exception e) {
-            System.err.println("ERROR: FILE_DELETE_ACK raw parse hatası: " + e.getMessage());
+            System.err.println("ERROR: FILE_DELETE_ACK WebSocket parse hatası: " + e.getMessage());
             e.printStackTrace();
         }
     }
-    /**
-     * FILE_LIST_RESP mesajlarını özel olarak işler
-     */
-    private void handleFileListResponseRaw(String rawMessage) {
+
+    // Advanced message checking for WebSocket (migrated from Socket version)
+    private boolean isCompleteMessage(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return false;
+        }
+
         try {
-            // Format:
-            // FILE_LIST_RESP|userId|fileId|files:file1:file1.txt:0|file2:file2.txt:0|...|timestamp
-            String[] parts = rawMessage.split("\\|");
+            // Find pipe positions for TYPE|USER_ID|FILE_ID|DATA|TIMESTAMP structure
+            int firstPipe = message.indexOf('|');
+            if (firstPipe == -1)
+                return false;
 
-            if (parts.length < 4) {
-                System.err.println("ERROR: Geçersiz FILE_LIST_RESP formatı");
-                return;
-            }
+            int secondPipe = message.indexOf('|', firstPipe + 1);
+            if (secondPipe == -1)
+                return false;
 
-            String userId = "null".equals(parts[1]) ? null : parts[1];
-            String fileId = "null".equals(parts[2]) ? null : parts[2];
-            long timestamp = Long.parseLong(parts[parts.length - 1]); // Son part timestamp
+            int thirdPipe = message.indexOf('|', secondPipe + 1);
+            if (thirdPipe == -1)
+                return false;
 
-            // Files data'yı birleştir (Part[3]'ten Part[length-2]'ye kadar)
-            StringBuilder filesDataBuilder = new StringBuilder();
+            int lastPipe = message.lastIndexOf('|');
+            if (lastPipe == thirdPipe)
+                return false;
 
-            // İlk dosya part'ı (files: prefix'ini temizle)
-            if (parts[3].startsWith("files:")) {
-                filesDataBuilder.append(parts[3].substring("files:".length()));
-            }
+            // Timestamp validation
+            String timestampPart = message.substring(lastPipe + 1);
+            Long.parseLong(timestampPart.trim());
 
-            // Diğer dosya part'larını ekle
-            for (int i = 4; i < parts.length - 1; i++) { // Son part timestamp olduğu için -1
-                filesDataBuilder.append("|").append(parts[i]);
-            }
+            System.out.println(
+                    "DEBUG: WebSocket message validation - complete: true, timestamp: '" + timestampPart.trim() + "'");
+            return true;
 
-            String finalFilesData = filesDataBuilder.toString();
-            System.out.println("DEBUG: Birleştirilmiş files data: '" + finalFilesData + "'");
-            System.out.println("DEBUG: Files data uzunluk: " + finalFilesData.length());
-
-            // Manuel message oluştur
-            Message fileListMessage = new Message(Message.MessageType.FILE_LIST_RESP, userId, fileId);
-            fileListMessage.addData("files", finalFilesData);
-
-            // Normal handler'a gönder
-            if (messageHandler != null) {
-                messageHandler.accept(fileListMessage);
-            }
-
-        } catch (Exception e) {
-            System.err.println("ERROR: FILE_LIST_RESP raw parse hatası: " + e.getMessage());
-            e.printStackTrace();
+        } catch (NumberFormatException e) {
+            System.out.println("DEBUG: WebSocket invalid timestamp in message: '" + message + "'");
+            return false;
         }
+
     }
+
+    // Force file list refresh (compatibility method)
     public void forceFileListRefresh() {
-        System.out.println("DEBUG: Force refresh requested");
+        System.out.println("DEBUG: WebSocket force refresh requested");
         requestFileList();
     }
 
-    private void handleError(String message, Exception e) {
-        if (errorHandler != null) {
-            errorHandler.accept(e != null ? message + ": " + e.getMessage() : message);
-        }
+    // Utility methods
+    public boolean isConnected() {
+        return isConnected;
     }
 
-    private String extractDataValue(String data, String key) {
-        if (data == null || key == null)
-            return null;
-        String[] pairs = data.split(",");
-        for (String pair : pairs) {
-            String[] keyValue = pair.split(":");
-            if (keyValue.length == 2 && key.equals(keyValue[0])) {
-                return keyValue[1];
-            }
-        }
-        return null;
+    public String getUserId() {
+        return userId;
     }
 
+    public void setUserId(String userId) {
+        this.userId = userId;
+        LOGGER.info("User ID set: " + userId);
+    }
+
+    // Handler setters
     public void setMessageHandler(Consumer<Message> handler) {
         this.messageHandler = handler;
     }
@@ -693,35 +768,15 @@ public class NetworkManager {
         this.userListUpdateHandler = handler;
     }
 
-    public boolean isConnected() {
-        return isConnected;
-    }
-
-    public String getUserId() {
-        return userId;
-    }
-
-    public void setUserId(String userId) {
-        this.userId = userId;
-    }
-
-    public void updateDocument(String fileId, String content) {
-        insertText(fileId, 0, content);
-    }
-
-    public void deleteText(String fileId, int position, int length) {
-        try {
-            String data = "position:" + position + ",length:" + length + ",userId:" + this.userId;
-
-            // 🔧 DOĞRU sendMessage() ÇAĞRISI
-            sendMessage("TEXT_DELETE", this.userId, fileId, data);
-
-            LOGGER.info("deleteText: Metin silme isteği gönderiliyor - FileId: " + fileId +
-                    ", Position: " + position + ", Length: " + length);
-
-        } catch (Exception e) {
-            LOGGER.severe("deleteText error: " + e.getMessage());
-            e.printStackTrace();
+    // Error handling
+    private void handleError(String message, Exception e) {
+        if (errorHandler != null) {
+            errorHandler.accept(e != null ? message + ":" + e.getMessage() : message);
         }
+    }
+
+    // Compatibility methods (empty implementations for now)
+    public boolean canDeleteDocument(String fileId) {
+        return fileId != null && !fileId.trim().isEmpty() && isConnected();
     }
 }
